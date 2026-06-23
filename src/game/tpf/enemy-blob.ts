@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-condition */
 /**
  * Blob enemy: spawner (idle/spawn anim), blob (chases player, damage on touch), and gib particles.
  * Spawner creates EntityEnemyBlob via factory; blob calls _scene.incrementKillCount() on death. MainScene passes scene and images in spawnBlob().

@@ -119,6 +119,7 @@ class TPFEntity {
     if (settings) Object.assign(this, settings);
     if (this.animSheet && this.context.renderer) {
       this.tile = new Tile(this.animSheet.image, 0, this.animSheet.width, this.animSheet.height, this.scale);
+      this.context.displayAdapter?.createEntity(this);
       this.updateQuad();
     }
     if (this.context.culledSectors) this.context.culledSectors.moveEntity(this);
@@ -139,6 +140,7 @@ class TPFEntity {
 
   remove(): void {
     if (this.context.culledSectors) this.context.culledSectors.removeEntity(this);
+    this.context.displayAdapter?.removeEntity(this);
   }
 
   handleMovementTrace(res: TraceResult): void {
@@ -193,6 +195,7 @@ class TPFEntity {
     if (this.tile && !this._killed && (this.pos.x !== this.last.x || this.pos.y !== this.last.y) && culledSectors) {
       culledSectors.moveEntity(this);
     }
+    ctx.displayAdapter?.updateEntity(this);
   }
 
   canSee(other: TPFEntity): boolean {
@@ -252,9 +255,11 @@ class TPFEntity {
 
   setLight(color: Color): void {
     if (this.tile) this.tile.quad.setColor(color);
+    this.context.displayAdapter?.setEntityLight(this, color);
   }
 
   draw(renderer?: Renderer): void {
+    if (this.context.displayAdapter?.drawEntity(this, renderer)) return;
     const r = renderer || this.context.renderer;
     if (this.tile && r) this.tile.draw(r);
   }

@@ -8,6 +8,7 @@ import type Renderer from './renderer/renderer.ts';
 import type PerspectiveCamera from './renderer/perspective-camera.ts';
 import type LightMap from './world/light-map.ts';
 import type GameState from './game.ts';
+import type { TPFEntityDisplayAdapter } from './entity-display-adapter.ts';
 import type TPFEntity from './entity.ts';
 
 /** 2D vector / size */
@@ -81,6 +82,7 @@ export interface EntityContext {
   tick: number;
   lightMap: LightMap | null;
   game: GameState | null;
+  displayAdapter?: TPFEntityDisplayAdapter | null;
 }
 
 /** AnimSheet descriptor */

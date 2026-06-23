@@ -2,29 +2,30 @@
 
 TwoPointFive provides a 2.5D (pseudo-3D) viewport for game worlds: perspective camera, tile-based floor/walls/ceiling with sector culling, and 3D-positioned entities.
 
-## Phaser 3 Plugin
+## Phaser 4 Plugin
 
-This repository includes a **Phaser 3**-compatible plugin (converted from the original ImpactJS version).
+This repository includes a **Phaser 4**-compatible plugin (converted from the original ImpactJS version).
 
 ## Repo Organization
 
 - **`impact-version/`** — The entire Impact TwoPointFive demo game, including the complete ImpactJS engine.
 - **`media/`** — Shared assets (tilesets, levels, etc.) used by both the Impact and Phaser versions.
-- **`src/`** — Phaser 3 / TypeScript source:
+- **`src/`** — Phaser 4 / TypeScript source:
   - **`src/game/`** — All game-specific classes (entities, weapons, pickups, etc.).
   - **`src/twopointfive/`** — The TwoPointFive plugin: renderer, camera, world (map, culling, light map, collision), entities, and plugin entry.
   - **`src/phaser-game.ts`** — Phaser game bootstrap and scene logic (loading, level, update, render).
-- **`index.html`** — Entry point for the Phaser demo; **`impact-index.html`** — Entry point for the Impact demo when served from the repo root.
+- **`index.html`** — Entry point for the Phaser demo; **`impact-index.html`** — Entry point for the Impact demo; **`weltmeister.html`** — Entry point for the Weltmeister editor.
 - Use the Node version in **`.nvmrc`** when cloning; then `npm install`, `npm run build`, and `npm start` (or any static server).
 
 ### Quick start
 
 1. Install dependencies: `npm install`
 2. Build: `npm run build`
-3. Serve: `npm start` (or any static server from the project root)
-4. Open `index.html` in the browser (e.g. http://localhost:8080/index.html)
+3. Serve: `npm start`
+4. Open the Phaser demo at http://localhost:8080/index.html
 
 The ImpactJS version of the game demo is served from http://localhost:8080/impact-index.html
+The Weltmeister editor is served from http://localhost:8080/weltmeister.html
 
 ### Usage in your Phaser game
 
@@ -66,7 +67,7 @@ The original plugin targets the [Impact HTML5 Game Engine](http://impactjs.com/)
 
 A demo game that uses this plugin is included in this repository.
 
-Please note that you need a license for Impact to actually run the demo. The `impact-version/impact/` and `impact-version/weltmeister/` directories from Impact need to be copied into the `impact-version/` directory of this demo.
+Please note that you need a license for Impact to run the Impact demo and Weltmeister editor. The `impact-version/impact/` and `impact-version/weltmeister/` directories from Impact are expected under `impact-version/`.
 
 
 ### Usage

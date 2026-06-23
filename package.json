@@ -1,11 +1,11 @@
 {
-  "name": "twopointfive-phaser-3",
+  "name": "twopointfive-phaser-4",
   "version": "26.2.0",
-  "description": "TwoPointFive 2.5D Plugin for Phaser 3",
+  "description": "TwoPointFive 2.5D Plugin for Phaser 4",
   "main": "src/twopointfive/two-point-five-plugin.ts",
   "scripts": {
     "build": "node build.js",
-    "start": "node build.js && npx serve . -p 8080",
+    "start": "node build.js && node dev-server.js",
     "lint": "eslint src/",
     "lint:fix": "eslint --fix src/",
     "format": "eslint --fix src/ && prettier --write 'src/**/*.ts'",
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "gl-matrix": "^2.8.1",
-    "phaser": "^3.60.0",
+    "phaser": "^4.2.0",
     "webfontloader": "^1.6.28"
   },
   "devDependencies": {

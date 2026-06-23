@@ -34,11 +34,9 @@ class WeaponGrenadeLauncher extends Weapon {
     this.maxAmmo = 80;
     this.cooldown = 0.5;
 
-    if (this.tile) {
-      this.pos.x = this.hudWidth / 2 - this.tileWidth / 2 - this.offset.x;
-      this.pos.y = this.hudHeight - this.offset.y;
-      this.tile.setPosition(this.pos.x, this.pos.y + this.bobOffset);
-    }
+    this.pos.x = this.hudWidth / 2 - this.tileWidth / 2 - this.offset.x;
+    this.pos.y = this.hudHeight - this.offset.y;
+    this.updateHudPosition();
 
     this.addAnim('idle', 100, [0]);
     this.addAnim('shoot', 0.1, [1, 0], true);

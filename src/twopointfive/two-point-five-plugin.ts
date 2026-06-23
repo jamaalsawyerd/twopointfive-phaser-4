@@ -1,7 +1,6 @@
 /**
  * Phaser integration: scene plugin (scene.tpf) and TpfExtern game object. The plugin loads levels,
- * runs entity updates with a capped tick, and provides renderToGL for the Extern. MainScene calls
- * tpf.update(delta) each frame and adds the Extern so the 2.5D world renders inside the Phaser canvas.
+ * runs entity updates from the Phaser scene lifecycle, and provides renderToGL for the Extern.
  */
 import Phaser from 'phaser';
 import * as TPF from './index.ts';
@@ -12,6 +11,13 @@ import type PerspectiveCamera from './renderer/perspective-camera.ts';
 import type OrthoCamera from './renderer/ortho-camera.ts';
 import type GameState from './game.ts';
 import type { GameContext } from './game.ts';
+import { LegacyEntityDisplayAdapter } from './entity-display-adapter.ts';
+import type { TPFEntityDisplayAdapter } from './entity-display-adapter.ts';
+import TwoPointFiveInputController from './input-controller.ts';
+import { LegacyWebGLRenderAdapter } from './render-adapter.ts';
+import TwoPointFiveSoundController from './sound-controller.ts';
+import TwoPointFiveTimeController from './time-controller.ts';
+import type { TPFRenderAdapter } from './render-adapter.ts';
 import type Animation from '~/game/tpf/animation.ts';
 import type TPFEntity from './entity.ts';
 
@@ -21,6 +27,11 @@ declare module 'phaser' {
     tpf: TwoPointFiveScenePlugin;
   }
 }
+
+type PhaserTextureInput =
+  | string
+  | Phaser.Textures.Texture
+  | { getSourceImage?(): HTMLImageElement | HTMLCanvasElement };
 
 /**
  * TpfExtern is a Phaser.GameObjects.Extern that renders the TwoPointFive
@@ -43,13 +54,42 @@ class TpfExtern extends Phaser.GameObjects.Extern {
 
   render(
     phaserRenderer: Phaser.Renderer.WebGL.WebGLRenderer,
-    _phaserCamera: Phaser.Cameras.Scene2D.Camera,
+    drawingContext: Phaser.Renderer.WebGL.DrawingContext,
     _calcMatrix: Phaser.GameObjects.Components.TransformMatrix,
+    _displayList: Phaser.GameObjects.GameObject[],
+    _displayListIndex: number,
   ): void {
     const tpf = this._tpf;
     if (!tpf) return;
 
-    tpf.renderToGL(phaserRenderer.gl, this._drawHud || undefined);
+    // Bind the DrawingContext framebuffer so the 2.5D world renders into Phaser's render
+    // target. This is what lets Phaser Filters enabled on this Extern (see the plugin's
+    // enableWorldFilters) post-process the world output the idiomatic Phaser 4 way.
+    phaserRenderer.glWrapper.updateBindingsFramebuffer(
+      {
+        bindings: { framebuffer: drawingContext.framebuffer },
+      } as unknown as Phaser.Types.Renderer.WebGL.WebGLGlobalParameters,
+      true,
+    );
+
+    const gl = phaserRenderer.gl;
+
+    // A non-null webGLFramebuffer means we are rendering into an off-screen target (e.g. an active
+    // world filter). Phaser allocates those framebuffers color-only (no depth attachment), which
+    // would break the world's depth testing and make geometry/entities draw through each other.
+    // Attach a managed depth buffer for the duration of this render, then detach it so Phaser's
+    // pooled framebuffer is left exactly as we found it. The main canvas already has depth.
+    const framebuffer = drawingContext.framebuffer as unknown as { webGLFramebuffer: WebGLFramebuffer | null } | null;
+    const offscreen = !!framebuffer?.webGLFramebuffer;
+    if (offscreen) {
+      tpf._attachFilterDepthBuffer(gl, drawingContext.width, drawingContext.height);
+    }
+
+    tpf.renderToGL(gl, this._drawHud || undefined);
+
+    if (offscreen) {
+      tpf._detachFilterDepthBuffer(gl);
+    }
   }
 }
 
@@ -99,6 +139,15 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   fov: number;
   sectorSize: number;
   backgroundAnims: Record<string, Record<number, Animation>>;
+  renderAdapter: TPFRenderAdapter;
+  entityDisplayAdapter: TPFEntityDisplayAdapter;
+  inputController: TwoPointFiveInputController | null;
+  soundController: TwoPointFiveSoundController | null;
+  timeController: TwoPointFiveTimeController | null;
+  extern: TpfExtern | null;
+  _filterDepthBuffer: WebGLRenderbuffer | null;
+  _filterDepthWidth: number;
+  _filterDepthHeight: number;
 
   constructor(scene: Phaser.Scene, pluginManager: Phaser.Plugins.PluginManager, pluginKey: string) {
     super(scene, pluginManager, pluginKey);
@@ -116,8 +165,21 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     this.fov = 75;
     this.sectorSize = 4;
     this.backgroundAnims = {};
+    this.renderAdapter = new LegacyWebGLRenderAdapter();
+    this.entityDisplayAdapter = new LegacyEntityDisplayAdapter();
+    this.inputController = null;
+    this.soundController = null;
+    this.timeController = null;
+    this.extern = null;
+    this._filterDepthBuffer = null;
+    this._filterDepthWidth = 0;
+    this._filterDepthHeight = 0;
   }
 
+  // boot() runs only once per scene (Phaser registers it via once(BOOT)). Per-run state that
+  // shutdown() tears down is set up in _onSceneStart, which fires on every start including
+  // scene.restart(); otherwise restarting leaves the postupdate listener and controllers gone,
+  // which freezes entity simulation (e.g. the player can't move after dying and restarting).
   boot(): void {
     const game = this.game;
     if (game.renderer && (game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl) {
@@ -129,8 +191,20 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
         }
       });
     }
+    this.scene.sys.events.on('start', this._onSceneStart, this);
     this.scene.sys.events.on('shutdown', this.shutdown, this);
     this.scene.sys.events.on('destroy', this.destroy, this);
+  }
+
+  _onSceneStart(): void {
+    this.scene.sys.events.off('postupdate', this._onScenePostUpdate, this);
+    this.scene.sys.events.on('postupdate', this._onScenePostUpdate, this);
+    if (!this.inputController) this.inputController = new TwoPointFiveInputController(this.scene);
+    if (!this.soundController) this.soundController = new TwoPointFiveSoundController(this.scene);
+    if (!this.timeController) this.timeController = new TwoPointFiveTimeController(this.scene);
+    this.timeController.bind();
+    this.scene.scale.off('resize', this._onResize, this);
+    this.scene.scale.on('resize', this._onResize, this);
   }
 
   _initRenderer(gl: WebGLRenderingContext): void {
@@ -145,13 +219,13 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     this.camera.depthTest = true;
     this.hudCamera = new tpf.OrthoCamera(width, height);
     this.gameState = new tpf.GameState(this._getGameContext());
-    this.scene.scale.on('resize', this._onResize, this);
   }
 
   _getGameContext(): GameContext {
     if (this._gameContext) {
       this._gameContext.renderer = this.renderer;
       this._gameContext.camera = this.camera;
+      this._gameContext.displayAdapter = this.entityDisplayAdapter;
       return this._gameContext;
     }
     this._gameContext = {
@@ -159,6 +233,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
       camera: this.camera,
       entityClasses: this.entityClasses,
       backgroundAnims: this.backgroundAnims,
+      displayAdapter: this.entityDisplayAdapter,
       gravity: this.gravity,
       tick: 1 / 60,
       getTileset: (name: string) => this.tilesets[name] || null,
@@ -184,15 +259,18 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     this.entityClasses[typeName] = Class;
   }
 
-  setTileset(
-    name: string,
-    imageOrTexture: Phaser.Textures.Texture | { getSourceImage?(): HTMLImageElement | HTMLCanvasElement },
-  ): TilesetInfo | null {
-    if (!this.renderer) return null;
+  _resolveSourceImage(imageOrTexture: PhaserTextureInput): HTMLImageElement | HTMLCanvasElement | null {
+    const texture = typeof imageOrTexture === 'string' ? this.scene.textures.get(imageOrTexture) : imageOrTexture;
     const img =
-      'getSourceImage' in imageOrTexture && imageOrTexture.getSourceImage
-        ? (imageOrTexture.getSourceImage() as HTMLImageElement | HTMLCanvasElement)
-        : (imageOrTexture as unknown as HTMLImageElement);
+      'getSourceImage' in texture && texture.getSourceImage
+        ? (texture.getSourceImage() as HTMLImageElement | HTMLCanvasElement)
+        : (texture as unknown as HTMLImageElement);
+    return img || null;
+  }
+
+  setTileset(name: string, imageOrTexture: PhaserTextureInput): TilesetInfo | null {
+    if (!this.renderer) return null;
+    const img = this._resolveSourceImage(imageOrTexture);
     if (!img) return null;
     const texture = this.renderer.loadTexture(img as HTMLImageElement);
     const globalPlugin = this.pluginManager.get('TwoPointFivePlugin') as TwoPointFivePlugin | null;
@@ -220,6 +298,10 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     this.gameState.loadLevel(data);
   }
 
+  _onScenePostUpdate(_time: number, delta: number): void {
+    this.update(delta);
+  }
+
   update(delta?: number): void {
     if (!this.gameState?.entities) return;
     const tick = (delta || this.game.loop.delta) / 1000;
@@ -241,7 +323,47 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   createExtern(drawHud?: () => void): TpfExtern {
     const ext = new TpfExtern(this.scene, this, drawHud);
     this.scene.add.existing(ext);
+    this.extern = ext;
     return ext;
+  }
+
+  getExtern(): TpfExtern | null {
+    return this.extern;
+  }
+
+  /**
+   * Attach a managed depth renderbuffer to the currently bound framebuffer, sized to match it.
+   * Used by TpfExtern when the world renders into a color-only off-screen filter framebuffer, so
+   * depth testing (and therefore wall/entity occlusion) keeps working while a world filter is active.
+   */
+  _attachFilterDepthBuffer(gl: WebGLRenderingContext, width: number, height: number): void {
+    if (!this._filterDepthBuffer || this._filterDepthWidth !== width || this._filterDepthHeight !== height) {
+      if (this._filterDepthBuffer) gl.deleteRenderbuffer(this._filterDepthBuffer);
+      this._filterDepthBuffer = gl.createRenderbuffer();
+      gl.bindRenderbuffer(gl.RENDERBUFFER, this._filterDepthBuffer);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, width, height);
+      gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+      this._filterDepthWidth = width;
+      this._filterDepthHeight = height;
+    }
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this._filterDepthBuffer);
+  }
+
+  _detachFilterDepthBuffer(gl: WebGLRenderingContext): void {
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, null);
+  }
+
+  /**
+   * Enables Phaser Filters on the world Extern and returns its `internal`/`external` filter
+   * lists. Lets callers post-process the rendered 2.5D world the idiomatic Phaser 4 way, e.g.
+   * `scene.tpf.enableWorldFilters()?.internal.addColorMatrix().grayscale()`. The lists also
+   * accept custom `Phaser.Filters.Controller` subclasses for bespoke shaders. Returns null if
+   * the Extern has not been created yet (call after createExtern).
+   */
+  enableWorldFilters(): Phaser.Types.GameObjects.FiltersInternalExternal | null {
+    if (!this.extern) return null;
+    this.extern.enableFilters();
+    return this.extern.filters;
   }
 
   renderToGL(gl: WebGLRenderingContext, drawHud?: () => void): void {
@@ -274,13 +396,12 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     const ctx = this.gameState.context;
     ctx.tick = (this.game.loop.delta || 16) / 1000;
 
-    this.gameState.draw(
-      this.renderer,
-      () => {
-        this.gameState!.drawWorld(this.camera!, this.renderer!);
-      },
-      typeof drawHud === 'function' ? drawHud : undefined,
-    );
+    this.renderAdapter.renderFrame({
+      renderer: this.renderer,
+      gameState: this.gameState,
+      camera: this.camera!,
+      drawHud: typeof drawHud === 'function' ? drawHud : undefined,
+    });
 
     if (!prevDepthTest) gl.disable(gl.DEPTH_TEST);
     else gl.enable(gl.DEPTH_TEST);
@@ -312,13 +433,12 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     }
     const ctx = this.gameState.context;
     ctx.tick = (this.game.loop.delta || 16) / 1000;
-    this.gameState.draw(
-      this.renderer,
-      () => {
-        this.gameState!.drawWorld(this.camera!, this.renderer!);
-      },
-      typeof drawHud === 'function' ? drawHud : undefined,
-    );
+    this.renderAdapter.renderFrame({
+      renderer: this.renderer,
+      gameState: this.gameState,
+      camera: this.camera!,
+      drawHud: typeof drawHud === 'function' ? drawHud : undefined,
+    });
   }
 
   getCamera(): PerspectiveCamera | null {
@@ -345,14 +465,39 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     return this.gameState;
   }
 
-  loadImage(
-    phaserTexture: Phaser.Textures.Texture | { getSourceImage?(): HTMLImageElement | HTMLCanvasElement },
-  ): ImageInfo | null {
+  setEntityDisplayAdapter(adapter: TPFEntityDisplayAdapter): void {
+    this.entityDisplayAdapter.shutdown();
+    this.entityDisplayAdapter = adapter;
+    if (this._gameContext) {
+      this._gameContext.displayAdapter = adapter;
+    }
+  }
+
+  getInputController(): TwoPointFiveInputController | null {
+    if (!this.inputController && this.scene.sys.isActive()) {
+      this.inputController = new TwoPointFiveInputController(this.scene);
+    }
+    return this.inputController;
+  }
+
+  getSoundController(): TwoPointFiveSoundController | null {
+    if (!this.soundController && this.scene.sys.isActive()) {
+      this.soundController = new TwoPointFiveSoundController(this.scene);
+    }
+    return this.soundController;
+  }
+
+  getTimeController(): TwoPointFiveTimeController | null {
+    if (!this.timeController && this.scene.sys.isActive()) {
+      this.timeController = new TwoPointFiveTimeController(this.scene);
+      this.timeController.bind();
+    }
+    return this.timeController;
+  }
+
+  loadImage(phaserTexture: PhaserTextureInput): ImageInfo | null {
     if (!this.renderer) return null;
-    const img =
-      'getSourceImage' in phaserTexture && phaserTexture.getSourceImage
-        ? (phaserTexture.getSourceImage() as HTMLImageElement | HTMLCanvasElement)
-        : (phaserTexture as unknown as HTMLImageElement);
+    const img = this._resolveSourceImage(phaserTexture);
     if (!img) return null;
     const glTexture = this.renderer.loadTexture(img as HTMLImageElement);
     return {
@@ -367,11 +512,25 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   }
 
   shutdown(): void {
+    this.renderAdapter.shutdown();
+    this.entityDisplayAdapter.shutdown();
+    this.inputController?.destroy();
+    this.inputController = null;
+    this.soundController?.clear();
+    this.soundController = null;
+    this.timeController?.unbind();
+    this.timeController = null;
+    this.extern = null;
+    this.scene.sys.events.off('postupdate', this._onScenePostUpdate, this);
     this.scene.scale.off('resize', this._onResize, this);
   }
 
   destroy(): void {
     this.shutdown();
+    if (this._filterDepthBuffer && this.renderer) {
+      this.renderer.gl.deleteRenderbuffer(this._filterDepthBuffer);
+      this._filterDepthBuffer = null;
+    }
     this.renderer = null;
     this.camera = null;
     this.gameState = null;

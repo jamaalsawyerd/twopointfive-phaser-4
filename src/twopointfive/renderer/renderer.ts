@@ -169,7 +169,9 @@ class Renderer {
     height?: number,
   ): WebGLTexture {
     const texture = this.gl.createTexture();
+    const previousFlipY = this.gl.getParameter(this.gl.UNPACK_FLIP_Y_WEBGL) as boolean;
     this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+    this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, false);
     if (img instanceof Uint8Array && width && height) {
       this.gl.texImage2D(
         this.gl.TEXTURE_2D,
@@ -192,6 +194,7 @@ class Renderer {
         img as TexImageSource,
       );
     }
+    this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, previousFlipY);
     this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
     this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
     this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);

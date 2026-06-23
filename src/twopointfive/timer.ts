@@ -1,9 +1,11 @@
 /**
  * Real-time timer for countdowns and elapsed time. Used by animations, weapons, and entities.
- * Clock source is performance.now(); independent of game loop delta.
+ * Clock source can be provided by Phaser so timers follow the scene clock.
  */
 /** Countdown timer: delta() is negative while counting down, 0 at expiry, positive after. */
 class TPFTimer {
+  static timeSource: (() => number) | null = null;
+
   target: number;
   base: number;
 
@@ -38,7 +40,14 @@ class TPFTimer {
   /**
    * Current time in seconds.
    */
+  static setTimeSource(source: (() => number) | null): void {
+    TPFTimer.timeSource = source;
+  }
+
   static time(): number {
+    if (TPFTimer.timeSource) {
+      return TPFTimer.timeSource();
+    }
     if (typeof performance !== 'undefined' && performance.now) {
       return performance.now() / 1000;
     }

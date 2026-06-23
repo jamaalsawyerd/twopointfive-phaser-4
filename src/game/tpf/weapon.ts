@@ -5,6 +5,7 @@
 import TPFTimer from '~/twopointfive/timer.ts';
 import Animation from './animation.ts';
 import { HudTile } from '~/twopointfive/world/tile.ts';
+import type Phaser from 'phaser';
 import type Renderer from '~/twopointfive/renderer/renderer.ts';
 import type GameState from '~/twopointfive/game.ts';
 import type { ImageInfo, Color } from '~/twopointfive/types.ts';
@@ -21,6 +22,9 @@ export interface WeaponOpts {
   sounds?: Record<string, { play(): void }>;
   ammoIconImage?: ImageInfo | null;
   onAmmoChange?: (ammo: number) => void;
+  scene?: Phaser.Scene | null;
+  textureKey?: string;
+  depth?: number;
   [key: string]: unknown;
 }
 
@@ -33,6 +37,9 @@ class Weapon {
   bobOffset: number;
 
   tile: HudTile | null;
+  phaserImage: Phaser.GameObjects.Image | null;
+  textureKey: string | null;
+  scene: Phaser.Scene | null;
   ammo: number;
   maxAmmo: number;
   anims: Record<string, Animation>;
@@ -67,6 +74,9 @@ class Weapon {
     this.bobOffset = 0;
 
     this.tile = null;
+    this.phaserImage = null;
+    this.textureKey = opts.textureKey || null;
+    this.scene = opts.scene || null;
     this.ammo = opts.ammo || 0;
     this.maxAmmo = 100;
     this.anims = {};
@@ -93,10 +103,17 @@ class Weapon {
 
     if (this.image && this.tileWidth) {
       this.tile = new HudTile(this.image, 0, this.tileWidth, this.tileHeight);
-      this.pos.x = this.hudWidth / 2 - this.tileWidth / 2 - this.offset.x;
-      this.pos.y = this.hudHeight - this.offset.y;
-      this.tile.setPosition(this.pos.x, this.pos.y + this.bobOffset);
     }
+    if (this.scene && this.textureKey && this.tileWidth) {
+      this.phaserImage = this.scene.add
+        .image(0, 0, this.textureKey, 0)
+        .setOrigin(0, 0)
+        .setScrollFactor(0)
+        .setDepth(opts.depth ?? 900);
+    }
+    this.pos.x = this.hudWidth / 2 - this.tileWidth / 2 - this.offset.x;
+    this.pos.y = this.hudHeight - this.offset.y;
+    this.updateHudPosition();
   }
 
   addAnim(name: string, frameTime: number, sequence: number[], stop?: boolean): Animation {
@@ -104,8 +121,21 @@ class Weapon {
     this.anims[name] = a;
     if (!this.currentAnim) {
       this.currentAnim = a;
+      this.setHudFrame(a.tile);
     }
     return a;
+  }
+
+  setHudFrame(tile: number): void {
+    if (this.tile) this.tile.setTile(tile);
+    if (this.phaserImage) {
+      this.phaserImage.setFrame(tile);
+    }
+  }
+
+  updateHudPosition(): void {
+    if (this.tile) this.tile.setPosition(this.pos.x, this.pos.y + this.bobOffset);
+    if (this.phaserImage) this.phaserImage.setPosition(this.pos.x, this.pos.y + this.bobOffset);
   }
 
   trigger(x: number, y: number, angle: number): void {
@@ -137,27 +167,29 @@ class Weapon {
 
   setLight(color: Color): void {
     this.currentQuadColor = color;
-    if (!this.tile) return;
-    this.tile.quad.setColor(color);
+    if (this.unsetFlashTimer && this.unsetFlashTimer.delta() <= 0) return;
+    if (this.tile) this.tile.quad.setColor(color);
+    if (this.phaserImage) {
+      const r = Math.max(0, Math.min(255, Math.round(color.r * 255)));
+      const g = Math.max(0, Math.min(255, Math.round(color.g * 255)));
+      const b = Math.max(0, Math.min(255, Math.round(color.b * 255)));
+      this.phaserImage.setTint((r << 16) | (g << 8) | b);
+    }
   }
 
   flash(duration: number): void {
-    if (!this.tile) return;
-    this.tile.quad.setColor(this.flashQuadColor);
+    if (this.tile) this.tile.quad.setColor(this.flashQuadColor);
+    if (this.phaserImage) this.phaserImage.setTint(0xffffff);
     this.unsetFlashTimer = new TPFTimer(duration);
   }
 
   update(): void {
     if (this.currentAnim) {
       this.currentAnim.update();
-      if (this.tile) {
-        this.tile.setTile(this.currentAnim.tile);
-      }
+      this.setHudFrame(this.currentAnim.tile);
     }
 
-    if (this.tile) {
-      this.tile.setPosition(this.pos.x, this.pos.y + this.bobOffset);
-    }
+    this.updateHudPosition();
 
     if (this.unsetFlashTimer && this.unsetFlashTimer.delta() > 0) {
       this.setLight(this.currentQuadColor);
@@ -166,6 +198,7 @@ class Weapon {
   }
 
   draw(renderer?: Renderer): void {
+    if (this.phaserImage) return;
     const r = renderer || this.renderer;
     if (this.tile && r) {
       this.tile.draw(r);

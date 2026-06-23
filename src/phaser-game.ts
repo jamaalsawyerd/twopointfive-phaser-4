@@ -17,9 +17,11 @@ import EntityVoid from '~/game/tpf/entity-void.ts';
 import EntityPlayer from '~/game/tpf/entity-player.ts';
 import EntityGrenadePickup from '~/game/tpf/grenade-pickup.ts';
 import { HudBlood } from '~/game/tpf/hud-blood.ts';
+import { CRT_FILTER_NODE, FilterCRTRenderNode, CRTFilterController } from '~/game/filters/crt-filter.ts';
 import WebFontFile from '~/game/util/web-font-file.ts';
 import type TPFEntity from '~/twopointfive/entity.ts';
 import type { ImageInfo, EntityContext, LevelData } from '~/twopointfive/types.ts';
+import type { TPFSoundEntry } from '~/twopointfive/sound-controller.ts';
 import type Map from '~/twopointfive/world/map.ts';
 
 const WIDTH = 640;
@@ -32,7 +34,7 @@ export class MainScene extends Phaser.Scene {
   _player: EntityPlayer | null;
   _weaponImages: Record<string, ImageInfo>;
   _enemyImages: Record<string, ImageInfo>;
-  _sounds: Record<string, Phaser.Sound.BaseSound | Phaser.Sound.BaseSound[]>;
+  _sounds: Record<string, TPFSoundEntry>;
   _killCount: number;
   _dead: boolean;
   _deathAnimActive: boolean;
@@ -49,10 +51,6 @@ export class MainScene extends Phaser.Scene {
   _deathMessageShown: boolean;
   _deathText: Phaser.GameObjects.Text | null;
 
-  _mouseDeltaX: number;
-  _mouseDown: boolean;
-  _pointerLockJustAcquired: boolean;
-
   _tpfExtern: Phaser.GameObjects.Extern | null;
   _hudHealthIcon: Phaser.GameObjects.Image | null;
   _hudHealthText: Phaser.GameObjects.Text | null;
@@ -60,6 +58,8 @@ export class MainScene extends Phaser.Scene {
   _hudAmmoText: Phaser.GameObjects.Text | null;
   _hudKillsText: Phaser.GameObjects.Text | null;
   _hudBlood: HudBlood | null;
+  _crtFilter: CRTFilterController | null;
+  _crtWeaponFilter: CRTFilterController | null;
 
   constructor() {
     super({ key: 'Main' });
@@ -83,10 +83,6 @@ export class MainScene extends Phaser.Scene {
     this._deathMessageShown = false;
     this._deathText = null;
 
-    this._mouseDeltaX = 0;
-    this._mouseDown = false;
-    this._pointerLockJustAcquired = false;
-
     this._tpfExtern = null;
     this._hudHealthIcon = null;
     this._hudHealthText = null;
@@ -94,6 +90,8 @@ export class MainScene extends Phaser.Scene {
     this._hudAmmoText = null;
     this._hudKillsText = null;
     this._hudBlood = null;
+    this._crtFilter = null;
+    this._crtWeaponFilter = null;
   }
 
   preload(): void {
@@ -103,7 +101,7 @@ export class MainScene extends Phaser.Scene {
     this.load.image('lights', 'media/tiles/lights-64.png');
     this.load.json('level', 'media/levels/base1.json');
 
-    this.load.image('grenade-launcher', 'media/grenade-launcher.png');
+    this.load.spritesheet('grenade-launcher', 'media/grenade-launcher.png', { frameWidth: 180, frameHeight: 134 });
     this.load.image('grenade', 'media/grenade.png');
     this.load.image('explosion', 'media/explosion.png');
 
@@ -136,10 +134,9 @@ export class MainScene extends Phaser.Scene {
       return;
     }
 
-    const tilesTexture = this.textures.get('tiles');
+    tpf.setTileset('media/tiles/basic-tiles-64.png', 'tiles');
+    tpf.setTileset('media/tiles/lights-64.png', 'lights');
     const lightsTexture = this.textures.get('lights');
-    tpf.setTileset('media/tiles/basic-tiles-64.png', tilesTexture);
-    tpf.setTileset('media/tiles/lights-64.png', lightsTexture);
     const lightsSource = lightsTexture.getSourceImage() as HTMLImageElement | HTMLCanvasElement;
     if (lightsSource) {
       const canvas = document.createElement('canvas');
@@ -152,28 +149,31 @@ export class MainScene extends Phaser.Scene {
     }
 
     this._weaponImages = {
-      grenadeLauncher: tpf.loadImage(this.textures.get('grenade-launcher'))!,
-      grenade: tpf.loadImage(this.textures.get('grenade'))!,
-      explosion: tpf.loadImage(this.textures.get('explosion'))!,
-      grenadePickup: tpf.loadImage(this.textures.get('grenade-pickup'))!,
+      grenadeLauncher: tpf.loadImage('grenade-launcher')!,
+      grenade: tpf.loadImage('grenade')!,
+      explosion: tpf.loadImage('explosion')!,
+      grenadePickup: tpf.loadImage('grenade-pickup')!,
     };
 
     this._enemyImages = {
-      blobSpawn: tpf.loadImage(this.textures.get('blob-spawn'))!,
-      blob: tpf.loadImage(this.textures.get('blob'))!,
-      blobGib: tpf.loadImage(this.textures.get('blob-gib'))!,
-      health: tpf.loadImage(this.textures.get('health'))!,
+      blobSpawn: tpf.loadImage('blob-spawn')!,
+      blob: tpf.loadImage('blob')!,
+      blobGib: tpf.loadImage('blob-gib')!,
+      health: tpf.loadImage('health')!,
     };
 
-    this._sounds = {
-      shoot: this.sound.add('snd-grenade-launcher', { volume: 0.8 }),
-      empty: this.sound.add('snd-empty-click'),
-      explosion: this.sound.add('snd-explosion', { volume: 0.9 }),
-      bounce: this.sound.add('snd-grenade-bounce', { volume: 0.6 }),
-      pickup: this.sound.add('snd-health-pickup'),
-      blobGib: this.sound.add('snd-blob-gib', { volume: 0.6 }),
-      hurt: [this.sound.add('snd-hurt1'), this.sound.add('snd-hurt2'), this.sound.add('snd-hurt3')],
-    };
+    const soundController = tpf.getSoundController();
+    this._sounds = soundController
+      ? {
+          shoot: soundController.add('shoot', 'snd-grenade-launcher', { volume: 0.8 }),
+          empty: soundController.add('empty', 'snd-empty-click'),
+          explosion: soundController.add('explosion', 'snd-explosion', { volume: 0.9 }),
+          bounce: soundController.add('bounce', 'snd-grenade-bounce', { volume: 0.6 }),
+          pickup: soundController.add('pickup', 'snd-health-pickup'),
+          blobGib: soundController.add('blobGib', 'snd-blob-gib', { volume: 0.6 }),
+          hurt: soundController.addMany('hurt', ['snd-hurt1', 'snd-hurt2', 'snd-hurt3']),
+        }
+      : {};
 
     tpf.registerEntityClass(
       'EntityVoid',
@@ -240,19 +240,15 @@ export class MainScene extends Phaser.Scene {
       });
       if (player) {
         this._player = player;
-        player._cursors = {
-          forward: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-          back: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-          left: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT),
-          right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT),
-          stepleft: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-          stepright: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
-          shoot: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
-        };
+        const inputController = tpf.getInputController();
+        player._cursors = inputController ? inputController.actions : null;
 
         const weapon = new WeaponGrenadeLauncher({
           ammo: 16,
           image: this._weaponImages.grenadeLauncher,
+          textureKey: 'grenade-launcher',
+          scene: this,
+          depth: 900,
           tileWidth: 180,
           tileHeight: 134,
           renderer: tpf.getRenderer(),
@@ -290,46 +286,6 @@ export class MainScene extends Phaser.Scene {
       const cam = tpf.getCamera();
       if (cam && !player) cam.setPosition(1010, 818, 0);
     }
-
-    const gameCanvas = this.sys.game.canvas;
-    this._mouseDeltaX = 0;
-    this._mouseDown = false;
-    this._pointerLockJustAcquired = false;
-
-    gameCanvas.addEventListener('click', () => {
-      void gameCanvas.requestPointerLock();
-    });
-
-    document.addEventListener('pointerlockchange', () => {
-      if (document.pointerLockElement === gameCanvas) {
-        this._pointerLockJustAcquired = true;
-      }
-    });
-
-    gameCanvas.addEventListener('mousemove', (event: MouseEvent) => {
-      if (document.pointerLockElement === gameCanvas) {
-        if (this._pointerLockJustAcquired) {
-          this._pointerLockJustAcquired = false;
-          return;
-        }
-        let mx = event.movementX || 0;
-        if (mx > 150) mx = 150;
-        if (mx < -150) mx = -150;
-        this._mouseDeltaX += mx;
-      }
-    });
-
-    gameCanvas.addEventListener('mousedown', (event: MouseEvent) => {
-      if (event.button === 0 && document.pointerLockElement === gameCanvas) {
-        this._mouseDown = true;
-      }
-    });
-
-    gameCanvas.addEventListener('mouseup', (event: MouseEvent) => {
-      if (event.button === 0) {
-        this._mouseDown = false;
-      }
-    });
 
     this._tpfExtern = tpf.createExtern(() => {
       const renderer = tpf.getRenderer();
@@ -393,6 +349,46 @@ export class MainScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(2000)
       .setVisible(false);
+
+    // Example: press F to toggle the CRT filter. Demonstrates adding a custom GLSL shader via the
+    // Phaser 4 Filters hook. It is applied both to the world (the Extern) and to the first-person
+    // weapon (a separate HUD Phaser Image) so they share the CRT look, while the 2D HUD text stays
+    // crisp. A Phaser filter only affects the GameObject it is enabled on, so each target needs its
+    // own controller. Controllers belong to per-run filter cameras, so they are recreated after a
+    // restart.
+    this._crtFilter = null;
+    this._crtWeaponFilter = null;
+    this.input.keyboard?.on('keydown-F', () => {
+      // World (the Extern).
+      const worldFilters = this.tpf.enableWorldFilters();
+      if (worldFilters) {
+        if (this._crtFilter) {
+          this._crtFilter.active = !this._crtFilter.active;
+        } else {
+          this._crtFilter = new CRTFilterController(worldFilters.internal.camera);
+          worldFilters.internal.add(this._crtFilter);
+        }
+      }
+
+      // First-person weapon (a separate Phaser Image, so it needs its own filter). Force the
+      // filter into context focus so it renders in screen space (like the world Extern) instead of
+      // the weapon's local space; otherwise the scanlines ride along as the weapon bobs. This also
+      // makes the weapon's scanline density match the world's.
+      const weaponImage = this._player?.currentWeapon?.phaserImage;
+      if (weaponImage) {
+        if (this._crtWeaponFilter) {
+          this._crtWeaponFilter.active = !this._crtWeaponFilter.active;
+        } else {
+          weaponImage.enableFilters();
+          weaponImage.setFiltersFocusContext(true);
+          const weaponFilters = weaponImage.filters;
+          if (weaponFilters) {
+            this._crtWeaponFilter = new CRTFilterController(weaponFilters.internal.camera);
+            weaponFilters.internal.add(this._crtWeaponFilter);
+          }
+        }
+      }
+    });
   }
 
   showDeathAnim(): void {
@@ -574,12 +570,11 @@ export class MainScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    if (this._player && !this._dead && !this._deathAnimActive) {
-      this._player._mouseDeltaX = this._mouseDeltaX || 0;
-      this._player._mouseDown = this._mouseDown || false;
+    const inputController = this.tpf.getInputController();
+    if (this._player && inputController && !this._dead && !this._deathAnimActive) {
+      this._player._mouseDeltaX = inputController.consumeMouseDeltaX();
+      this._player._mouseDown = inputController.mouseDown;
     }
-    this._mouseDeltaX = 0;
-    this.tpf.update(delta);
     this.checkSpawn(delta / 1000);
   }
 }
@@ -596,6 +591,18 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   render: {
     antialias: false,
+    // Disable stencil so Phaser's off-screen framebuffers (used by world Filters) are color-only.
+    // This is a WebGL1 context, where a separate depth renderbuffer cannot coexist with a stencil
+    // attachment on one framebuffer; without this, attaching the world depth buffer (see
+    // TpfExtern.render) leaves the filter framebuffer incomplete and the screen renders black.
+    // The game uses no stencil-based features (Geometry masks), so this is safe.
+    stencil: false,
+    // Register the example CRT world filter's render node. The runtime uses the map value as the
+    // node constructor directly (the RenderNodesConfig type is cast away to match that).
+    renderNodes: { [CRT_FILTER_NODE]: FilterCRTRenderNode } as unknown as Record<
+      string,
+      Phaser.Types.Core.RenderNodesConfig
+    >,
   },
   plugins: {
     global: [{ key: 'TwoPointFivePlugin', plugin: TwoPointFivePlugin, start: true }],

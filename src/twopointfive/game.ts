@@ -11,6 +11,7 @@ import LightMap from './world/light-map.ts';
 import CulledSectors from './world/culled-sectors.ts';
 import type Renderer from './renderer/renderer.ts';
 import type PerspectiveCamera from './renderer/perspective-camera.ts';
+import type { TPFEntityDisplayAdapter } from './entity-display-adapter.ts';
 import type { CollisionMapLike, LevelData, EntityContext } from './types.ts';
 import type Animation from '~/game/tpf/animation.ts';
 
@@ -23,6 +24,7 @@ export interface GameContext {
     new (x: number, y: number, settings: Record<string, unknown>, context: EntityContext) => TPFEntity
   >;
   backgroundAnims: Record<string, Record<number, Animation>>;
+  displayAdapter?: TPFEntityDisplayAdapter | null;
   gravity: number;
   tick: number;
   getTileset?: (name: string) => import('./types.ts').ImageInfo | null;
@@ -144,6 +146,7 @@ class GameState {
       tick: this.context.tick,
       lightMap: this.lightMap,
       game: this,
+      displayAdapter: this.context.displayAdapter,
     };
     let ent: TPFEntity;
     try {
