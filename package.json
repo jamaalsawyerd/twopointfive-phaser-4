@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "gl-matrix": "^2.8.1",
-    "phaser": "^4.2.0",
+    "phaser": "^4.2.1",
     "webfontloader": "^1.6.28"
   },
   "devDependencies": {
