@@ -17,7 +17,7 @@ import EntityVoid from '~/game/tpf/entity-void.ts';
 import EntityPlayer from '~/game/tpf/entity-player.ts';
 import EntityGrenadePickup from '~/game/tpf/grenade-pickup.ts';
 import { HudBlood } from '~/game/tpf/hud-blood.ts';
-import { CRT_FILTER_NODE, FilterCRTRenderNode, CRTFilterController } from '~/game/filters/crt-filter.ts';
+import { WAVY_FILTER_NODE, FilterWavyRenderNode, WavyFilterController } from '~/game/filters/wavy-filter.ts';
 import WebFontFile from '~/game/util/web-font-file.ts';
 import type TPFEntity from '~/twopointfive/entity.ts';
 import type { ImageInfo, EntityContext, LevelData } from '~/twopointfive/types.ts';
@@ -58,8 +58,10 @@ export class MainScene extends Phaser.Scene {
   _hudAmmoText: Phaser.GameObjects.Text | null;
   _hudKillsText: Phaser.GameObjects.Text | null;
   _hudBlood: HudBlood | null;
-  _crtFilter: CRTFilterController | null;
-  _crtWeaponFilter: CRTFilterController | null;
+  _wavyFilter: WavyFilterController | null;
+  _wavyWeaponFilter: WavyFilterController | null;
+  _gShaderOn: boolean;
+  _pulseUniforms: { time: number };
 
   constructor() {
     super({ key: 'Main' });
@@ -90,8 +92,10 @@ export class MainScene extends Phaser.Scene {
     this._hudAmmoText = null;
     this._hudKillsText = null;
     this._hudBlood = null;
-    this._crtFilter = null;
-    this._crtWeaponFilter = null;
+    this._wavyFilter = null;
+    this._wavyWeaponFilter = null;
+    this._gShaderOn = false;
+    this._pulseUniforms = { time: 0 };
   }
 
   preload(): void {
@@ -149,7 +153,6 @@ export class MainScene extends Phaser.Scene {
     }
 
     this._weaponImages = {
-      grenadeLauncher: tpf.loadImage('grenade-launcher')!,
       grenade: tpf.loadImage('grenade')!,
       explosion: tpf.loadImage('explosion')!,
       grenadePickup: tpf.loadImage('grenade-pickup')!,
@@ -245,13 +248,11 @@ export class MainScene extends Phaser.Scene {
 
         const weapon = new WeaponGrenadeLauncher({
           ammo: 16,
-          image: this._weaponImages.grenadeLauncher,
           textureKey: 'grenade-launcher',
           scene: this,
           depth: 900,
           tileWidth: 180,
           tileHeight: 134,
-          renderer: tpf.getRenderer(),
           hudWidth: WIDTH,
           hudHeight: HEIGHT,
           gameState: tpf.getGameState(),
@@ -259,7 +260,6 @@ export class MainScene extends Phaser.Scene {
             shoot: this._sounds.shoot as { play(): void },
             empty: this._sounds.empty as { play(): void },
           },
-          ammoIconImage: this._weaponImages.grenade,
           EntityGrenade: grenadeFactory as unknown as typeof EntityGrenade,
           onAmmoChange: (ammo: number) => {
             this.updateAmmoDisplay(ammo);
@@ -287,17 +287,7 @@ export class MainScene extends Phaser.Scene {
       if (cam && !player) cam.setPosition(1010, 818, 0);
     }
 
-    this._tpfExtern = tpf.createExtern(() => {
-      const renderer = tpf.getRenderer();
-      const hudCamera = tpf.getHudCamera();
-      if (!renderer || !hudCamera) return;
-
-      renderer.setCamera(hudCamera);
-
-      if (this._player?.currentWeapon) {
-        this._player.currentWeapon.draw(renderer);
-      }
-    });
+    this._tpfExtern = tpf.createExtern();
 
     const hudStyle: Phaser.Types.GameObjects.Text.TextStyle = {
       fontFamily: '"Fredoka One", Arial, sans-serif',
@@ -350,41 +340,77 @@ export class MainScene extends Phaser.Scene {
       .setDepth(2000)
       .setVisible(false);
 
-    // Example: press F to toggle the CRT filter. Demonstrates adding a custom GLSL shader via the
+    // Example: press F to toggle the wavy filter. Demonstrates adding a custom GLSL shader via the
     // Phaser 4 Filters hook. It is applied both to the world (the Extern) and to the first-person
-    // weapon (a separate HUD Phaser Image) so they share the CRT look, while the 2D HUD text stays
+    // weapon (a separate HUD Phaser Image) so they share the wavy look, while the 2D HUD text stays
     // crisp. A Phaser filter only affects the GameObject it is enabled on, so each target needs its
     // own controller. Controllers belong to per-run filter cameras, so they are recreated after a
     // restart.
-    this._crtFilter = null;
-    this._crtWeaponFilter = null;
-    this.input.keyboard?.on('keydown-F', () => {
+    // Example: press G to toggle an animated entity material. Demonstrates the TPFQuadBatch
+    // material system: a composable fragment-shader body applied per entity via setMaterial.
+    // Entities keep wall occlusion and fog because they still render in the depth-tested world
+    // pass — this is per-entity shading, not a Phaser GameObject filter. It also shows per-frame
+    // uniforms (`time` lives in a shared uniforms object mutated in update(); the node re-applies
+    // material uniforms on every activation and the program wrapper diff-checks them) and
+    // persistence (while the flag is on, update() sweeps newly spawned entities — fire a grenade
+    // and the explosion pulses too). Entities share one material key with no per-entity uniforms,
+    // so they all batch into a single draw call.
+    this._pulseUniforms = { time: 0 };
+    tpf.registerMaterial('demo-pulse', {
+      fragmentUniforms: 'uniform float time;',
+      fragmentBody: [
+        '  float lum = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));',
+        '  vec3 cycle = 0.5 + 0.5 * vec3(sin(time * 3.0), sin(time * 3.0 + 2.094), sin(time * 3.0 + 4.188));',
+        '  float pulse = 0.6 + 0.3 * sin(time * 6.0);',
+        '  gl_FragColor.rgb = mix(gl_FragColor.rgb, cycle * (0.35 + lum * 1.4), pulse);',
+      ].join('\n'),
+      uniforms: this._pulseUniforms,
+    });
+    this._gShaderOn = false;
+    this.input.keyboard?.on('keydown-G', (event: KeyboardEvent) => {
+      // Ignore browser auto-repeat while the key is held; a toggle must fire once per press.
+      if (event.repeat) return;
+      this._gShaderOn = !this._gShaderOn;
+      if (!this._gShaderOn) {
+        const entities = this.tpf.getGameState()?.entities || [];
+        for (const entity of entities) {
+          if (entity.tile?.quad.material?.key === 'demo-pulse') entity.clearMaterial();
+        }
+      }
+      // Turning on needs no work here: the per-frame sweep in update() applies the material.
+    });
+
+    this._wavyFilter = null;
+    this._wavyWeaponFilter = null;
+    this.input.keyboard?.on('keydown-F', (event: KeyboardEvent) => {
+      // Ignore browser auto-repeat while the key is held; a toggle must fire once per press.
+      if (event.repeat) return;
       // World (the Extern).
       const worldFilters = this.tpf.enableWorldFilters();
       if (worldFilters) {
-        if (this._crtFilter) {
-          this._crtFilter.active = !this._crtFilter.active;
+        if (this._wavyFilter) {
+          this._wavyFilter.active = !this._wavyFilter.active;
         } else {
-          this._crtFilter = new CRTFilterController(worldFilters.internal.camera);
-          worldFilters.internal.add(this._crtFilter);
+          this._wavyFilter = new WavyFilterController(worldFilters.internal.camera);
+          worldFilters.internal.add(this._wavyFilter);
         }
       }
 
       // First-person weapon (a separate Phaser Image, so it needs its own filter). Force the
       // filter into context focus so it renders in screen space (like the world Extern) instead of
-      // the weapon's local space; otherwise the scanlines ride along as the weapon bobs. This also
-      // makes the weapon's scanline density match the world's.
+      // the weapon's local space; otherwise the waves ride along as the weapon bobs. This also
+      // makes the weapon's wave phase match the world's.
       const weaponImage = this._player?.currentWeapon?.phaserImage;
       if (weaponImage) {
-        if (this._crtWeaponFilter) {
-          this._crtWeaponFilter.active = !this._crtWeaponFilter.active;
+        if (this._wavyWeaponFilter) {
+          this._wavyWeaponFilter.active = !this._wavyWeaponFilter.active;
         } else {
           weaponImage.enableFilters();
           weaponImage.setFiltersFocusContext(true);
           const weaponFilters = weaponImage.filters;
           if (weaponFilters) {
-            this._crtWeaponFilter = new CRTFilterController(weaponFilters.internal.camera);
-            weaponFilters.internal.add(this._crtWeaponFilter);
+            this._wavyWeaponFilter = new WavyFilterController(weaponFilters.internal.camera);
+            weaponFilters.internal.add(this._wavyWeaponFilter);
           }
         }
       }
@@ -569,13 +595,25 @@ export class MainScene extends Phaser.Scene {
     this._blobSpawnTimer = Math.max(this._blobSpawnWaitCurrent, 0.5);
   }
 
-  update(_time: number, delta: number): void {
+  update(time: number, delta: number): void {
     const inputController = this.tpf.getInputController();
     if (this._player && inputController && !this._dead && !this._deathAnimActive) {
       this._player._mouseDeltaX = inputController.consumeMouseDeltaX();
       this._player._mouseDown = inputController.mouseDown;
     }
     this.checkSpawn(delta / 1000);
+
+    // Drive the demo-pulse material's animation. The TPFQuadBatch node re-applies material
+    // uniforms on every activation (at least once per frame), so mutating the shared uniforms
+    // object is all it takes; the program wrapper diff-checks, so this is free when G is off.
+    this._pulseUniforms.time = time / 1000;
+    if (this._gShaderOn) {
+      // Sweep entities spawned since the G keypress so the effect persists (e.g. explosions).
+      const entities = this.tpf.getGameState()?.entities || [];
+      for (const entity of entities) {
+        if (entity.tile && !entity.tile.quad.material) entity.setMaterial('demo-pulse');
+      }
+    }
   }
 }
 
@@ -597,9 +635,9 @@ const config: Phaser.Types.Core.GameConfig = {
     // TpfExtern.render) leaves the filter framebuffer incomplete and the screen renders black.
     // The game uses no stencil-based features (Geometry masks), so this is safe.
     stencil: false,
-    // Register the example CRT world filter's render node. The runtime uses the map value as the
+    // Register the example wavy world filter's render node. The runtime uses the map value as the
     // node constructor directly (the RenderNodesConfig type is cast away to match that).
-    renderNodes: { [CRT_FILTER_NODE]: FilterCRTRenderNode } as unknown as Record<
+    renderNodes: { [WAVY_FILTER_NODE]: FilterWavyRenderNode } as unknown as Record<
       string,
       Phaser.Types.Core.RenderNodesConfig
     >,

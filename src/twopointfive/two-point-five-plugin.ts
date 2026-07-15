@@ -4,11 +4,10 @@
  */
 import Phaser from 'phaser';
 import * as TPF from './index.ts';
-import type { ImageInfo, TilesetInfo, EntityContext } from './types.ts';
+import type { ImageInfo, TilesetInfo, EntityContext, TPFTexture } from './types.ts';
 import type { LightMapPixels } from './world/light-map.ts';
 import type Renderer from './renderer/renderer.ts';
 import type PerspectiveCamera from './renderer/perspective-camera.ts';
-import type OrthoCamera from './renderer/ortho-camera.ts';
 import type GameState from './game.ts';
 import type { GameContext } from './game.ts';
 import { LegacyEntityDisplayAdapter } from './entity-display-adapter.ts';
@@ -17,6 +16,7 @@ import TwoPointFiveInputController from './input-controller.ts';
 import { LegacyWebGLRenderAdapter } from './render-adapter.ts';
 import TwoPointFiveSoundController from './sound-controller.ts';
 import TwoPointFiveTimeController from './time-controller.ts';
+import { glState } from './renderer/renderer.ts';
 import type { TPFRenderAdapter } from './render-adapter.ts';
 import type Animation from '~/game/tpf/animation.ts';
 import type TPFEntity from './entity.ts';
@@ -39,17 +39,10 @@ type PhaserTextureInput =
  */
 class TpfExtern extends Phaser.GameObjects.Extern {
   _tpf: TwoPointFiveScenePlugin;
-  _drawHud: (() => void) | null;
 
-  constructor(scene: Phaser.Scene, tpfPlugin: TwoPointFiveScenePlugin, drawHud?: () => void) {
+  constructor(scene: Phaser.Scene, tpfPlugin: TwoPointFiveScenePlugin) {
     super(scene);
     this._tpf = tpfPlugin;
-    this._drawHud = drawHud || null;
-  }
-
-  setHudCallback(fn: () => void): this {
-    this._drawHud = fn;
-    return this;
   }
 
   render(
@@ -85,7 +78,7 @@ class TpfExtern extends Phaser.GameObjects.Extern {
       tpf._attachFilterDepthBuffer(gl, drawingContext.width, drawingContext.height);
     }
 
-    tpf.renderToGL(gl, this._drawHud || undefined);
+    tpf.renderToGL(gl);
 
     if (offscreen) {
       tpf._detachFilterDepthBuffer(gl);
@@ -133,7 +126,6 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   >;
   tilesets: Record<string, TilesetInfo>;
   lightMapPixels: Record<string, LightMapPixels>;
-  hudCamera: OrthoCamera | null;
   _gameContext: GameContext | null;
   gravity: number;
   fov: number;
@@ -159,7 +151,6 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     this.entityClasses = {};
     this.tilesets = {};
     this.lightMapPixels = {};
-    this.hudCamera = null;
     this._gameContext = null;
     this.gravity = 4;
     this.fov = 75;
@@ -211,13 +202,13 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     if (this.renderer) return;
     const globalPlugin = this.pluginManager.get('TwoPointFivePlugin') as TwoPointFivePlugin | null;
     const tpf = globalPlugin?.TPF ? globalPlugin.TPF : TPF;
-    this.renderer = new tpf.Renderer(gl);
+    this.renderer = new tpf.Renderer(gl, this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer);
+    this.renderer.whiteTexture = this._getTextureWrapper('__WHITE');
     const width = this.game.scale.width;
     const height = this.game.scale.height;
     this.renderer.setSize(width, height);
     this.camera = new tpf.PerspectiveCamera(this.fov, width / height, 1, 10000);
     this.camera.depthTest = true;
-    this.hudCamera = new tpf.OrthoCamera(width, height);
     this.gameState = new tpf.GameState(this._getGameContext());
   }
 
@@ -249,7 +240,6 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     const h = gameSize.height;
     this.renderer.setSize(w, h);
     this.camera.updateProjection(this.fov, w / h, 1, 10000);
-    this.hudCamera!.updateProjection(w, h);
   }
 
   registerEntityClass(
@@ -268,16 +258,39 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     return img || null;
   }
 
+  /** Returns the Phaser-managed GL texture wrapper for a texture key or Texture object. */
+  _getTextureWrapper(keyOrTexture: PhaserTextureInput): TPFTexture | null {
+    const texture =
+      typeof keyOrTexture === 'string'
+        ? this.scene.textures.exists(keyOrTexture)
+          ? this.scene.textures.get(keyOrTexture)
+          : null
+        : (keyOrTexture as Phaser.Textures.Texture);
+    const source = texture && 'source' in texture ? texture.source[0] : null;
+    return source?.glTexture || null;
+  }
+
   setTileset(name: string, imageOrTexture: PhaserTextureInput): TilesetInfo | null {
     if (!this.renderer) return null;
     const img = this._resolveSourceImage(imageOrTexture);
     if (!img) return null;
-    const texture = this.renderer.loadTexture(img as HTMLImageElement);
     const globalPlugin = this.pluginManager.get('TwoPointFivePlugin') as TwoPointFivePlugin | null;
     const tpf = globalPlugin?.TPF ? globalPlugin.TPF : TPF;
-    const expanded = tpf.expandSeams(img as HTMLImageElement, 64, this.renderer);
+    const expanded = tpf.expandSeams(img as HTMLImageElement, 64);
+    // The seam-expanded canvas is registered with Phaser's TextureManager so the GL texture is
+    // Phaser-managed (context-loss safe). Textures persist across scene restarts, so reuse the key.
+    let texture: TPFTexture | null = null;
+    if (expanded.canvas) {
+      const seamKey = `__tpf_seams_${name}`;
+      if (!this.scene.textures.exists(seamKey)) {
+        this.scene.textures.addCanvas(seamKey, expanded.canvas);
+      }
+      texture = this._getTextureWrapper(seamKey);
+    }
+    if (!texture) texture = this._getTextureWrapper(imageOrTexture);
+    if (!texture) return null;
     this.tilesets[name] = {
-      texture: expanded.texture || texture,
+      texture,
       width: img.width,
       height: img.height,
       textureWidth: expanded.textureWidth || img.width,
@@ -320,8 +333,8 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     this.gameState.entities = this.gameState.entities.filter((e) => !e._killed);
   }
 
-  createExtern(drawHud?: () => void): TpfExtern {
-    const ext = new TpfExtern(this.scene, this, drawHud);
+  createExtern(): TpfExtern {
+    const ext = new TpfExtern(this.scene, this);
     this.scene.add.existing(ext);
     this.extern = ext;
     return ext;
@@ -366,28 +379,26 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     return this.extern.filters;
   }
 
-  renderToGL(gl: WebGLRenderingContext, drawHud?: () => void): void {
+  renderToGL(gl: WebGLRenderingContext): void {
     if (!this.gameState) return;
     if (!this.renderer && gl) {
       this._initRenderer(gl);
     }
     if (!this.renderer) return;
+    if (!this.renderer.whiteTexture) {
+      this.renderer.whiteTexture = this._getTextureWrapper('__WHITE');
+    }
 
-    const prevDepthTest = gl.isEnabled(gl.DEPTH_TEST);
-    const prevBlend = gl.isEnabled(gl.BLEND);
-    const prevCullFace = gl.isEnabled(gl.CULL_FACE);
-    const prevScissor = gl.isEnabled(gl.SCISSOR_TEST);
-
-    const width = this.renderer.width;
-    const height = this.renderer.height;
-    gl.viewport(0, 0, width, height);
-    gl.disable(gl.SCISSOR_TEST);
-
-    gl.activeTexture(gl.TEXTURE0);
+    // All GL state changes go through Phaser's state tracker (glWrapper), so nothing needs to be
+    // saved or restored by hand: the Extern render is followed by Phaser's RebindContext node,
+    // which re-establishes bindings from tracked state. Depth test is the exception — Phaser's 2D
+    // pass never sets it, so it must be left disabled at the end of the pass.
+    const glWrapper = this.renderer.phaserRenderer.glWrapper;
+    glWrapper.updateViewport(glState({ viewport: [0, 0, this.renderer.width, this.renderer.height] }));
+    glWrapper.updateScissorEnabled(glState({ scissor: { enable: false } }));
 
     this.renderer.prepare();
 
-    gl.uniform1i(this.renderer.program.uniform.texture, 0);
     this.renderer.texture = null;
     if (this.renderer.fog) {
       this.renderer.setFog(this.renderer.fog.color, this.renderer.fog.near, this.renderer.fog.far);
@@ -400,33 +411,22 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
       renderer: this.renderer,
       gameState: this.gameState,
       camera: this.camera!,
-      drawHud: typeof drawHud === 'function' ? drawHud : undefined,
     });
 
-    if (!prevDepthTest) gl.disable(gl.DEPTH_TEST);
-    else gl.enable(gl.DEPTH_TEST);
-    if (!prevBlend) gl.disable(gl.BLEND);
-    else gl.enable(gl.BLEND);
-    if (!prevCullFace) gl.disable(gl.CULL_FACE);
-    else gl.enable(gl.CULL_FACE);
-    if (prevScissor) gl.enable(gl.SCISSOR_TEST);
-
-    const canvas = this.game.canvas;
-    gl.viewport(0, 0, canvas.width, canvas.height);
+    glWrapper.updateDepthTest({ depthTest: false });
+    this.renderer.depthTest = false;
   }
 
-  draw(drawHud?: () => void): void {
+  draw(): void {
     if (!this.gameState) return;
     if (!this.renderer && this.game.renderer && (this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl) {
       this._initRenderer((this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl);
     }
     if (!this.renderer) return;
-    const gl = (this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    const width = this.renderer.width;
-    const height = this.renderer.height;
-    gl.viewport(0, 0, width, height);
-    gl.disable(gl.SCISSOR_TEST);
+    const glWrapper = this.renderer.phaserRenderer.glWrapper;
+    glWrapper.updateBindingsFramebuffer(glState({ bindings: { framebuffer: null } }));
+    glWrapper.updateViewport(glState({ viewport: [0, 0, this.renderer.width, this.renderer.height] }));
+    glWrapper.updateScissorEnabled(glState({ scissor: { enable: false } }));
     this.renderer.prepare();
     if (this.renderer.fog) {
       this.renderer.setFog(this.renderer.fog.color, this.renderer.fog.near, this.renderer.fog.far);
@@ -437,16 +437,11 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
       renderer: this.renderer,
       gameState: this.gameState,
       camera: this.camera!,
-      drawHud: typeof drawHud === 'function' ? drawHud : undefined,
     });
   }
 
   getCamera(): PerspectiveCamera | null {
     return this.camera;
-  }
-
-  getHudCamera(): OrthoCamera | null {
-    return this.hudCamera;
   }
 
   getRenderer(): Renderer | null {
@@ -498,8 +493,8 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   loadImage(phaserTexture: PhaserTextureInput): ImageInfo | null {
     if (!this.renderer) return null;
     const img = this._resolveSourceImage(phaserTexture);
-    if (!img) return null;
-    const glTexture = this.renderer.loadTexture(img as HTMLImageElement);
+    const glTexture = this._getTextureWrapper(phaserTexture);
+    if (!img || !glTexture) return null;
     return {
       texture: glTexture,
       width: img.width,
@@ -509,6 +504,15 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
 
   setFog(color: number, near: number, far: number): void {
     if (this.renderer) this.renderer.setFog(color, near, far);
+  }
+
+  /**
+   * Registers a composable entity/quad material (GLSL uniforms + fragment body) with the
+   * TPFQuadBatch render node. Apply it per entity via entity.setMaterial(key, uniforms).
+   * The engine's fog is composed after the material body automatically.
+   */
+  registerMaterial(key: string, config: import('./renderer/tpf-quad-batch.ts').TPFMaterialConfig): void {
+    this.getRenderer()?.registerMaterial(key, config);
   }
 
   shutdown(): void {

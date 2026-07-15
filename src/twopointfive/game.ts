@@ -316,20 +316,16 @@ class GameState {
     this.culledSectors.draw(cx, cy, cullAngle, fovRad);
   }
 
-  draw(renderer?: Renderer, drawWorld?: () => void, drawHud?: () => void): void {
+  draw(renderer?: Renderer, drawWorld?: () => void): void {
     const r = renderer || this.context.renderer;
     if (!r) return;
     r.render(() => {
       if (this.clearColor) {
         const c = this.clearColor;
-        r.gl.clearColor(c[0], c[1], c[2], 1);
+        r.setClearColor(c[0], c[1], c[2], 1);
       }
       r.clear(!!this.clearColor, true);
       if (drawWorld) drawWorld();
-      const fog = r.fog;
-      r.setFog(false);
-      if (drawHud) drawHud();
-      if (fog) r.setFog(fog.color, fog.near, fog.far);
     });
   }
 }

@@ -6,7 +6,6 @@ export interface TPFRenderFrameOptions {
   renderer: Renderer;
   gameState: GameState;
   camera: PerspectiveCamera;
-  drawHud?: () => void;
 }
 
 export interface TPFRenderAdapter {
@@ -16,14 +15,10 @@ export interface TPFRenderAdapter {
 
 export class LegacyWebGLRenderAdapter implements TPFRenderAdapter {
   renderFrame(options: TPFRenderFrameOptions): void {
-    const { renderer, gameState, camera, drawHud } = options;
-    gameState.draw(
-      renderer,
-      () => {
-        gameState.drawWorld(camera, renderer);
-      },
-      drawHud,
-    );
+    const { renderer, gameState, camera } = options;
+    gameState.draw(renderer, () => {
+      gameState.drawWorld(camera, renderer);
+    });
   }
 
   shutdown(): void {}

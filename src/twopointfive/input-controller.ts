@@ -85,7 +85,16 @@ class TwoPointFiveInputController {
   }
 
   _handleClick(): void {
-    void this.canvas.requestPointerLock();
+    // Request raw mouse input. Without unadjustedMovement, movementX passes through the OS
+    // pointer-acceleration ballistics (e.g. Windows "Enhance Pointer Precision"), whose
+    // speed-dependent gain and per-event integer rounding make slow view turns uneven and jumpy.
+    // Engines that predate PointerLockOptions ignore the argument and return undefined (despite
+    // the lib.dom types); the lock still engages, just without raw input.
+    const request = this.canvas.requestPointerLock({ unadjustedMovement: true }) as Promise<void> | undefined;
+    if (typeof request?.catch === 'function') {
+      // Platforms without raw-input support reject; fall back to an adjusted-movement lock.
+      request.catch(() => void this.canvas.requestPointerLock());
+    }
   }
 
   _handlePointerLockChange(): void {

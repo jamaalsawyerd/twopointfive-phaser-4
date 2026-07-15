@@ -258,6 +258,20 @@ class TPFEntity {
     this.context.displayAdapter?.setEntityLight(this, color);
   }
 
+  /**
+   * Renders this entity with a material registered via scene.tpf.registerMaterial. The entity
+   * stays in the depth-tested world pass, so it keeps wall occlusion and fog. Entities sharing
+   * the same material object batch together; per-entity uniforms force a separate draw call.
+   */
+  setMaterial(key: string, uniforms?: Record<string, number | number[]>): void {
+    if (this.tile) this.tile.quad.material = { key, uniforms };
+  }
+
+  /** Restores default rendering. */
+  clearMaterial(): void {
+    if (this.tile) this.tile.quad.material = null;
+  }
+
   draw(renderer?: Renderer): void {
     if (this.context.displayAdapter?.drawEntity(this, renderer)) return;
     const r = renderer || this.context.renderer;

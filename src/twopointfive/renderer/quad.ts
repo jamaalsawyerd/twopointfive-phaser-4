@@ -3,7 +3,7 @@
  * Position/rotation/size changes set _dirty; draw path recalculates and uploads. Used by Tile and HudTile.
  */
 import { vec3, mat4 } from 'gl-matrix';
-import type { Color, ColorA } from '~/twopointfive/types.ts';
+import type { Color, ColorA, TPFTexture, TPFQuadMaterial } from '~/twopointfive/types.ts';
 
 /** 6 vertices, 9 floats each (pos xyz, uv uv, color rgba). */
 class Quad {
@@ -11,7 +11,9 @@ class Quad {
   static readonly VERTICES = 6;
   static readonly SIZE = Quad.VERTEX_SIZE * Quad.VERTICES;
 
-  texture: WebGLTexture | null;
+  texture: TPFTexture | null;
+  /** Optional material (shader) for this quad; null renders with the default program. */
+  material: TPFQuadMaterial | null;
   width: number;
   height: number;
   color: ColorA;
@@ -21,8 +23,9 @@ class Quad {
   _verts: Float32Array;
   _vertsPos: Float32Array[];
 
-  constructor(width?: number, height?: number, texture?: WebGLTexture | null) {
+  constructor(width?: number, height?: number, texture?: TPFTexture | null) {
     this.texture = texture || null;
+    this.material = null;
     this.width = width || 1;
     this.height = height || 1;
     this.color = { r: 1, g: 1, b: 1, a: 1 };
@@ -38,7 +41,8 @@ class Quad {
       this._verts.subarray(4 * 9, 4 * 9 + 3),
       this._verts.subarray(5 * 9, 5 * 9 + 3),
     ];
-    this.setUV(0, 0, 1, 1);
+    // Textures are Phaser-managed and uploaded with UNPACK_FLIP_Y_WEBGL, so V runs bottom-up.
+    this.setUV(0, 1, 1, 0);
     this.setColor(this.color);
     this.setAlpha(this.color.a);
   }

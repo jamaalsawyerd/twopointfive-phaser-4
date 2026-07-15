@@ -1,10 +1,10 @@
 /**
  * Tile: one quad with UVs from a tileset; used by Map/WallMap for world geometry and by entities for sprites.
- * TileMesh batches many tiles into one buffer for draw; HudTile is the HUD (ortho) variant.
+ * TileMesh batches many tiles into one buffer for draw.
  */
 import Quad from '~/twopointfive/renderer/quad.ts';
 import type Renderer from '~/twopointfive/renderer/renderer.ts';
-import type { ImageInfo } from '~/twopointfive/types.ts';
+import type { ImageInfo, TPFTexture } from '~/twopointfive/types.ts';
 import type Animation from '~/game/tpf/animation.ts';
 
 /** Single tile from a tileset image; setTile() updates UVs; seamsExpanded adds 2px spacing. */
@@ -41,7 +41,8 @@ class Tile {
     const py = (ty * this.tileHeight + ty * tileSpacing) / texH;
     const wx = this.tileWidth / texW;
     const wy = this.tileHeight / texH;
-    this.quad.setUV(px, py + wy, px + wx, py);
+    // py measures from the image top; textures upload flipped (Phaser default), so mirror V.
+    this.quad.setUV(px, 1 - (py + wy), px + wx, 1 - py);
   }
 
   setTileInBuffer(buffer: Float32Array, offset: number, t: number): void {
@@ -55,7 +56,7 @@ class Tile {
     const py = (ty * this.tileHeight + ty * tileSpacing) / texH;
     const wx = this.tileWidth / texW;
     const wy = this.tileHeight / texH;
-    Quad.setUVInBuffer(buffer, offset, px, py + wy, px + wx, py);
+    Quad.setUVInBuffer(buffer, offset, px, 1 - (py + wy), px + wx, 1 - py);
   }
 
   draw(renderer: Renderer): void {
@@ -72,7 +73,7 @@ class TileMesh {
   animatedTiles: AnimatedTileEntry[];
   length: number;
   buffer: Float32Array;
-  texture: WebGLTexture | null;
+  texture: TPFTexture | null;
 
   constructor(tiles: Tile[]) {
     this.animatedTiles = [];
@@ -99,24 +100,4 @@ class TileMesh {
   }
 }
 
-class HudTile extends Tile {
-  setTile(t: number): void {
-    if (t === this.tile) return;
-    this.tile = t;
-    const tx = (Math.floor(t * this.tileWidth) % this.image.width) / this.image.width;
-    const ty = (Math.floor((t * this.tileWidth) / this.image.width) * this.tileHeight) / this.image.height;
-    const wx = this.tileWidth / this.image.width;
-    const wy = this.tileHeight / this.image.height;
-    this.quad.setUV(tx, 1 - (ty + wy), tx + wx, 1 - ty);
-  }
-
-  setPosition(x: number, y: number): void {
-    this.quad.setPosition(x + this.tileWidth / 2, y + this.tileHeight / 2, 0);
-  }
-
-  setAlpha(a: number): void {
-    this.quad.setAlpha(Math.max(0, Math.min(1, a)));
-  }
-}
-
-export { Tile, TileMesh, HudTile, Quad };
+export { Tile, TileMesh, Quad };

@@ -2,6 +2,7 @@
  * Shared types for the 2.5D engine: vectors, colors, image/tile data, entity context,
  * collision results, and level JSON shapes. Consumed by entity, game, renderer, and plugin.
  */
+import type Phaser from 'phaser';
 import type CollisionMap from './collision-map.ts';
 import type CulledSectors from './world/culled-sectors.ts';
 import type Renderer from './renderer/renderer.ts';
@@ -39,9 +40,24 @@ export interface ColorA {
   a: number;
 }
 
+/** Phaser-managed GL texture wrapper used for all engine textures */
+export type TPFTexture = Phaser.Renderer.WebGL.Wrappers.WebGLTextureWrapper;
+
+/** Phaser-managed GL program wrapper used for all engine shaders */
+export type TPFProgram = Phaser.Renderer.WebGL.Wrappers.WebGLProgramWrapper;
+
+/**
+ * A material reference carried by a Quad: the key of a material registered with the TPFQuadBatch
+ * render node, plus optional per-quad uniform overrides. Quads with the same material batch together.
+ */
+export interface TPFQuadMaterial {
+  key: string;
+  uniforms?: Record<string, number | number[]>;
+}
+
 /** GL image info for tiles / sprites */
 export interface ImageInfo {
-  texture: WebGLTexture;
+  texture: TPFTexture;
   width: number;
   height: number;
   textureWidth?: number;
@@ -51,7 +67,7 @@ export interface ImageInfo {
 
 /** Tileset info stored by the plugin */
 export interface TilesetInfo {
-  texture: WebGLTexture;
+  texture: TPFTexture;
   width: number;
   height: number;
   textureWidth: number;

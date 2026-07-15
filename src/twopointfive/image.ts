@@ -2,10 +2,8 @@
  * Texture helpers. expandSeams() copies a tileset and adds 1px borders between tiles so that
  * sampling at tile edges doesn't bleed; used when building tilesets for the engine.
  */
-import type Renderer from './renderer/renderer.ts';
-
 export interface ExpandSeamsResult {
-  texture: WebGLTexture | null;
+  canvas: HTMLCanvasElement | null;
   textureWidth: number;
   textureHeight: number;
   width: number;
@@ -14,13 +12,12 @@ export interface ExpandSeamsResult {
 }
 
 /**
- * Create WebGL texture from image/canvas. renderer.loadTexture(img).
- * expandSeams(tilesize): returns canvas with 1px border per tile to avoid seams.
+ * expandSeams(tilesize): returns a canvas with 1px border per tile to avoid seams. The caller
+ * registers the canvas with Phaser's TextureManager to obtain a GL texture.
  */
 function expandSeams(
   imageOrCanvas: HTMLImageElement | HTMLCanvasElement | ImageBitmap,
   tilesize: number,
-  renderer?: Renderer,
 ): ExpandSeamsResult {
   const img = imageOrCanvas;
   const tw = (img.width / tilesize) | 0;
@@ -30,7 +27,7 @@ function expandSeams(
   const canvas = typeof document !== 'undefined' && document.createElement('canvas');
   if (!canvas)
     return {
-      texture: null,
+      canvas: null,
       textureWidth: img.width,
       textureHeight: img.height,
       width: img.width,
@@ -99,9 +96,8 @@ function expandSeams(
       );
     }
   }
-  const texture = renderer ? renderer.loadTexture(canvas) : null;
   return {
-    texture,
+    canvas,
     textureWidth,
     textureHeight,
     width: img.width,

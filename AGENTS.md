@@ -46,21 +46,32 @@ Notes:
 1. `src/phaser-game.ts` registers `TwoPointFivePlugin` as a global Phaser plugin.
 2. The scene uses `scene.tpf` (scene plugin) to create the engine renderer, camera, and game state.
 3. `MainScene.preload()` loads textures, audio, JSON level data, and web fonts.
-4. `MainScene.create()` wires tilesets, light-map pixels, entity classes, HUD objects, pointer lock, and the `Extern` object that draws the 2.5D world inside the Phaser scene.
+4. `MainScene.create()` wires tilesets, light-map pixels, entity classes, HUD objects, pointer lock, and the `Extern` object that draws the 2.5D world inside the Phaser scene. The HUD (weapon image, icons, text) is entirely native Phaser GameObjects — there is no engine-side HUD/ortho pass.
 5. `MainScene.update()` forwards delta time to `tpf.update(delta)` and handles spawn timers.
 6. `GameState.loadLevel()` builds maps, collision, lighting, culled sectors, and entities from Impact-style level JSON.
 7. Entities update themselves through the shared `EntityContext` and render through the engine renderer.
 
 ### Engine path
 
-- `src/twopointfive/entity.ts` is the base physics/rendering entity. It handles velocity, gravity, collision trace, animation updates, and light/sector updates.
+- `src/twopointfive/entity.ts` is the base physics/rendering entity. It handles velocity, gravity, collision trace, animation updates, and light/sector updates. `setMaterial(key, uniforms)` / `clearMaterial()` select a custom shader (material) for the entity's billboard.
 - `src/twopointfive/game.ts` owns the level, entity registry, collision map, light map, and pairwise entity collision checks.
 - `src/twopointfive/world/map.ts` and `wall-map.ts` build tile meshes from level layers.
 - `src/twopointfive/world/light-map.ts` converts light-layer data plus image pixels into per-tile colors.
-- `src/twopointfive/renderer/renderer.ts` batches quads into WebGL and handles fog, camera, and texture uploads.
-- `src/twopointfive/two-point-five-plugin.ts` bridges Phaser with the engine and exposes `scene.tpf`.
+- `src/twopointfive/renderer/renderer.ts` is the batching facade: camera/fog state, texture binding, draw stats, and quad/mesh submission. All GL resources live behind Phaser wrappers.
+- `src/twopointfive/renderer/tpf-quad-batch.ts` is the `TPFQuadBatch` RenderNode (registered with Phaser's RenderNodeManager at runtime). It owns the shader programs, the composable material registry, the vertex layout (`pos vec3, uv vec2, color vec4`), and per-(material × fog) program+VAO suites. The fog GLSL is a snippet composed after each material's fragment body, so custom materials keep fog automatically.
+- `src/twopointfive/two-point-five-plugin.ts` bridges Phaser with the engine and exposes `scene.tpf` (including `registerMaterial(key, config)`).
 - `src/twopointfive/render-adapter.ts` is a seam for the world render path (`LegacyWebGLRenderAdapter` is the only implementation).
-- `src/twopointfive/entity-display-adapter.ts` is a seam for entity rendering. The only implementation is `LegacyEntityDisplayAdapter` (a no-op): entities draw themselves as WebGL billboard quads inside the Extern pass, so they depth-test against walls and pick up fog and lighting. A `ProjectedSpriteEntityDisplayAdapter` (Phaser `Image` sprites) was tried but retired — see the Phaser 4 rendering constraints below.
+- `src/twopointfive/entity-display-adapter.ts` is a seam for entity rendering. The only implementation is `LegacyEntityDisplayAdapter` (a no-op): entities draw themselves as WebGL billboard quads inside the Extern pass, so they depth-test against walls and pick up fog and lighting. For per-entity custom shaders use `entity.setMaterial` (stays in the depth-tested pass). A `ProjectedSpriteEntityDisplayAdapter` (Phaser `Image` sprites) was tried but retired — see the Phaser 4 rendering constraints below.
+
+### Phaser renderer integration (how the engine uses Phaser 4's WebGL layer)
+
+The engine contains no raw GL resource management; everything routes through Phaser 4's renderer infrastructure, so state tracking, context-loss recovery, and shader registration are shared with Phaser itself:
+
+- **Textures** come from Phaser's `TextureManager` (`TextureSource.glTexture`, a `WebGLTextureWrapper`). The seam-expanded tileset canvas is registered as a `__tpf_seams_<name>` canvas texture and reused across scene restarts. Phaser uploads textures with `UNPACK_FLIP_Y_WEBGL` enabled, so engine UV math mirrors V (see `Tile.setTile` and `Quad`'s default UV).
+- **Programs** are `WebGLProgramWrapper`s from `renderer.createProgram`; uniforms go through `setUniform` + `bind()` (queued, diff-checked).
+- **Buffers/attributes** use `WebGLVertexBufferLayoutWrapper` + `WebGLVAOWrapper`; the CPU-side batch buffer is a view over the layout wrapper's ArrayBuffer.
+- **GL state** (blend, depth test, scissor, viewport, clear color, texture units) goes through `glWrapper.update*` / `glTextureUnits.bind`, so Phaser's tracker always knows the truth. Nothing is saved/restored by hand: Phaser wraps every Extern render in `YieldContext`/`RebindContext`, which re-establishes bindings afterward. Depth test is explicitly left disabled at the end of the pass because Phaser's 2D pipeline never sets it.
+- Still raw by necessity: `gl.clear`/`gl.drawArrays` (actions, not state) and the filter depth-renderbuffer attach in the plugin (Phaser allocates filter framebuffers color-only).
 
 ## Phaser 4 rendering constraints (important — verified against phaser@4.2.0)
 
@@ -72,13 +83,22 @@ Before proposing any "move the renderer to Phaser-native" work, know these hard 
   - Entities therefore render as WebGL billboard quads inside the Extern pass (`LegacyEntityDisplayAdapter`), where they depth-test against walls. An earlier attempt rendered entities as Phaser `Image` sprites (`ProjectedSpriteEntityDisplayAdapter`), but those **cannot be occluded by walls** — Phaser composites them over the whole world Extern — so that adapter was removed. Do not reintroduce Phaser-GameObject-based entity rendering expecting wall occlusion; it cannot work until Phaser ships real 3D.
 - **The v3 `Pipeline` system is gone** (no `setPipeline`). Custom shaders use RenderNodes, `Phaser.GameObjects.Shader`, or **Filters** (`setUniform`-based).
 
+### Extension point: entity materials (per-entity custom shaders)
+
+The sanctioned way to give an entity a custom shader while keeping wall occlusion and fog:
+
+- Register a material once: `scene.tpf.registerMaterial(key, { fragmentUniforms, fragmentBody, uniforms })`. The body runs after `gl_FragColor = tex * vColor;` and may modify `gl_FragColor`; the fog snippet is composed after it automatically.
+- Apply per entity: `entity.setMaterial(key, perEntityUniforms?)`, remove with `entity.clearMaterial()`.
+- Entities sharing a material key (with no per-entity uniforms) batch into one draw call; per-entity uniforms force a flush per entity.
+- Worked example in `src/phaser-game.ts`: **G** toggles `demo-pulse`, demonstrating animated uniforms (a shared `uniforms` object whose `time` is mutated in `update()`; the node re-applies material uniforms on each activation) and persistence (while on, `update()` sweeps newly spawned entities into the material).
+
 ### Extension point: world Filters
 
 `Components.Filters` is mixed into the base `GameObject`, so the world `Extern` supports Phaser's Filters system. The plugin exposes this as the idiomatic customization surface:
 
 - `scene.tpf.enableWorldFilters()` enables filters on the world Extern and returns its `internal`/`external` filter lists, e.g. `scene.tpf.enableWorldFilters()?.internal.addColorMatrix().grayscale()`. Built-in filters and custom `Phaser.Filters.Controller` subclasses both work; they affect only the world, not the HUD.
 - This relies on `TpfExtern.render` binding `drawingContext.framebuffer` (per Phaser's own Extern docs) so the world renders into the filterable target. `TpfExtern.render` must keep the Phaser 4 signature `(renderer, drawingContext, calcMatrix, displayList, displayListIndex)`.
-- Worked example of a **custom GLSL** world filter: `src/game/filters/crt-filter.ts` (CRT scanlines + vignette). It shows the two halves of a Phaser 4 filter — a `BaseFilterShader` RenderNode (GLSL + `programManager.setUniform`) and a `Filters.Controller` subclass — linked by a node name and registered via the game config's `render.renderNodes` map (the runtime treats each map value as the node constructor, so the `RenderNodesConfig` type is cast away). `MainScene` toggles it with the **F** key.
+- Worked example of a **custom GLSL** world filter: `src/game/filters/wavy-filter.ts` (animated sine-wave UV displacement, like heat haze/underwater). It shows the two halves of a Phaser 4 filter — a `BaseFilterShader` RenderNode (GLSL + `programManager.setUniform`) and a `Filters.Controller` subclass — linked by a node name and registered via the game config's `render.renderNodes` map (the runtime treats each map value as the node constructor, so the `RenderNodesConfig` type is cast away). `MainScene` toggles it with the **F** key.
 
 ## Data and level format
 

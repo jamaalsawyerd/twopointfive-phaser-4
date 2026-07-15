@@ -1,64 +1,30 @@
 /**
- * WebGL renderer for the 2.5D world: shaders, buffer batching, camera/projection, fog, and draw.
- * Used by the plugin and GameState.draw(); setCamera() then draw quads (tiles, entities) with the active program.
+ * WebGL renderer facade for the 2.5D world: batching, camera, fog, textures, and draw stats.
+ * The shader programs, materials, vertex layout, and batch buffer are owned by the TPFQuadBatch
+ * render node (registered with Phaser's RenderNodeManager at runtime); this class drives it from
+ * GameState.draw(): setCamera() then draw quads (tiles, entities) with the active material.
  */
-import Program from './program.ts';
 import Quad from './quad.ts';
-import type OrthoCamera from './ortho-camera.ts';
 import type PerspectiveCamera from './perspective-camera.ts';
+import type Phaser from 'phaser';
+import type { TPFTexture, TPFQuadMaterial } from '~/twopointfive/types.ts';
+import { TPFQuadBatchNode, TPF_QUAD_BATCH_NODE, DEFAULT_MATERIAL } from './tpf-quad-batch.ts';
+import type { TPFMaterialConfig } from './tpf-quad-batch.ts';
+
+/**
+ * Phaser's typings declare glWrapper state arrays as typed arrays, but the runtime (and Phaser's
+ * own WebGLGlobalParametersFactory) uses plain number arrays. Cast through this helper.
+ */
+function glState(state: object): Phaser.Types.Renderer.WebGL.WebGLGlobalParameters {
+  return state as Phaser.Types.Renderer.WebGL.WebGLGlobalParameters;
+}
+export { glState };
 
 interface TileMeshLike {
   length: number;
-  texture: WebGLTexture | null;
+  texture: TPFTexture | null;
   buffer: Float32Array;
 }
-
-const Shaders = {
-  Vertex: [
-    'precision highp float;',
-    'attribute vec3 pos;',
-    'attribute vec2 uv;',
-    'attribute vec4 color;',
-    'varying vec4 vColor;',
-    'varying vec2 vUv;',
-    'uniform mat4 view;',
-    'uniform mat4 projection;',
-    'void main(void) {',
-    '  vColor = color;',
-    '  vUv = uv;',
-    '  gl_Position = projection * view * vec4(pos, 1.0);',
-    '}',
-  ].join('\n'),
-  Fragment: [
-    'precision highp float;',
-    'varying vec4 vColor;',
-    'varying vec2 vUv;',
-    'uniform sampler2D texture;',
-    'void main(void) {',
-    '  vec4 tex = texture2D(texture, vUv);',
-    '  if( tex.a < 0.8 ) discard;',
-    '  gl_FragColor = tex * vColor;',
-    '}',
-  ].join('\n'),
-  FragmentWithFog: [
-    'precision highp float;',
-    'varying vec4 vColor;',
-    'varying vec2 vUv;',
-    'uniform sampler2D texture;',
-    'uniform vec3 fogColor;',
-    'uniform float fogNear;',
-    'uniform float fogFar;',
-    'void main(void) {',
-    '  float depth = gl_FragCoord.z / gl_FragCoord.w;',
-    '  float fogFactor = smoothstep( fogFar, fogNear, depth );',
-    '  fogFactor = 1.0 - clamp( fogFactor, 0.2, 1.0);',
-    '  vec4 tex = texture2D(texture, vUv);',
-    '  if( tex.a < 0.8 ) discard;',
-    '  gl_FragColor = tex * vColor;',
-    '  gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor.rgb, fogFactor);',
-    '}',
-  ].join('\n'),
-};
 
 export interface FogState {
   color: number;
@@ -67,11 +33,9 @@ export interface FogState {
 }
 
 class Renderer {
-  static Shaders = Shaders;
-
   bufferSize: number;
   buffer: Float32Array;
-  texture: WebGLTexture | null;
+  texture: TPFTexture | null;
   bufferIndex: number;
   gl: WebGLRenderingContext;
   drawCalls: number;
@@ -83,17 +47,19 @@ class Renderer {
   fog: FogState | null;
   fullscreenFlags: Record<string, unknown>;
   canvas: HTMLCanvasElement | null;
-  programDefault: Program;
-  programFog: Program;
-  program: Program;
-  glBuffer: WebGLBuffer;
-  whiteTexture: WebGLTexture;
+  /** The Phaser renderer that owns the program/buffer wrappers. */
+  phaserRenderer: Phaser.Renderer.WebGL.WebGLRenderer;
+  /** The render node owning programs, materials, vertex layout, and the batch buffer. */
+  node: TPFQuadBatchNode;
+  /** 1x1 white texture used for untextured quads; injected by the plugin (Phaser's __WHITE). */
+  whiteTexture: TPFTexture | null;
   width: number;
   height: number;
 
-  constructor(canvasOrGL: HTMLCanvasElement | WebGLRenderingContext) {
-    this.bufferSize = 64;
-    this.buffer = null!;
+  constructor(
+    canvasOrGL: HTMLCanvasElement | WebGLRenderingContext,
+    phaserRenderer: Phaser.Renderer.WebGL.WebGLRenderer,
+  ) {
     this.texture = null;
     this.bufferIndex = 0;
     this.gl = null!;
@@ -130,78 +96,49 @@ class Renderer {
       this.canvas = ((canvasOrGL as WebGLRenderingContext).canvas as HTMLCanvasElement) || null;
     }
 
-    this.programDefault = new Program(this.gl, Shaders.Vertex, Shaders.Fragment);
-    this.programFog = new Program(this.gl, Shaders.Vertex, Shaders.FragmentWithFog);
-    this.program = this.programDefault;
-    this.buffer = new Float32Array(this.bufferSize * Quad.SIZE);
-    this.glBuffer = this.gl.createBuffer()!;
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glBuffer);
+    this.phaserRenderer = phaserRenderer;
+    const nodes = phaserRenderer.renderNodes;
+    if (!nodes.hasNode(TPF_QUAD_BATCH_NODE)) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+      nodes.addNodeConstructor(TPF_QUAD_BATCH_NODE, TPFQuadBatchNode as unknown as Function);
+    }
+    this.node = nodes.getNode(TPF_QUAD_BATCH_NODE) as TPFQuadBatchNode;
+    this.node.init();
+    this.bufferSize = this.node.bufferSize;
+    this.buffer = this.node.buffer;
+    this.node.activate(DEFAULT_MATERIAL, true);
     this.prepare();
-    this.whiteTexture = this.loadTexture(new Uint8Array([0xff, 0xff, 0xff, 0xff]), 1, 1);
-    this.setProgram(this.programDefault);
+    this.whiteTexture = null;
+  }
+
+  /** Registers a composable material (see TPFQuadBatchNode) usable via Quad.material. */
+  registerMaterial(key: string, config: TPFMaterialConfig): void {
+    this.node.registerMaterial(key, config);
   }
 
   setFog(color: number | false | undefined, near?: number, far?: number): void {
+    this.flush();
     if (color === false || typeof color === 'undefined') {
-      this.setProgram(this.programDefault, true);
       this.fog = null;
+      this.node.setFog(null);
     } else {
-      this.setProgram(this.programFog, true);
       this.fog = { color, near: near!, far: far! };
       const c1 = ((color & 0xff0000) >> 16) / 255;
       const c2 = ((color & 0x00ff00) >> 8) / 255;
       const c3 = ((color & 0x0000ff) >> 0) / 255;
-      this.gl.uniform3f(this.program.uniform.fogColor, c1, c2, c3);
-      this.gl.uniform1f(this.program.uniform.fogNear, near!);
-      this.gl.uniform1f(this.program.uniform.fogFar, far!);
+      this.node.setFog({ color: [c1, c2, c3], near: near!, far: far! });
     }
   }
 
   setSize(width: number, height: number): void {
     this.width = width;
     this.height = height;
-    this.gl.viewport(0, 0, this.width, this.height);
+    this.phaserRenderer.glWrapper.updateViewport(glState({ viewport: [0, 0, this.width, this.height] }));
   }
 
-  loadTexture(
-    img: HTMLImageElement | HTMLCanvasElement | ImageBitmap | Uint8Array,
-    width?: number,
-    height?: number,
-  ): WebGLTexture {
-    const texture = this.gl.createTexture();
-    const previousFlipY = this.gl.getParameter(this.gl.UNPACK_FLIP_Y_WEBGL) as boolean;
-    this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
-    this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, false);
-    if (img instanceof Uint8Array && width && height) {
-      this.gl.texImage2D(
-        this.gl.TEXTURE_2D,
-        0,
-        this.gl.RGBA,
-        width,
-        height,
-        0,
-        this.gl.RGBA,
-        this.gl.UNSIGNED_BYTE,
-        img,
-      );
-    } else {
-      this.gl.texImage2D(
-        this.gl.TEXTURE_2D,
-        0,
-        this.gl.RGBA,
-        this.gl.RGBA,
-        this.gl.UNSIGNED_BYTE,
-        img as TexImageSource,
-      );
-    }
-    this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, previousFlipY);
-    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
-    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
-    this.gl.bindTexture(this.gl.TEXTURE_2D, null);
-    this.texture = null;
-    return texture;
+  /** Sets the clear color through Phaser's state tracker. */
+  setClearColor(r: number, g: number, b: number, a: number): void {
+    this.phaserRenderer.glWrapper.updateColorClearValue(glState({ colorClearValue: [r, g, b, a] }));
   }
 
   clear(color?: boolean, depth?: boolean, stencil?: boolean): void {
@@ -213,27 +150,28 @@ class Renderer {
   }
 
   prepare(): void {
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glBuffer);
-    this.gl.enable(this.gl.DEPTH_TEST);
-    this.gl.enable(this.gl.BLEND);
-    this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
-    this.gl.useProgram(this.program.program);
-    this.gl.clearColor(0, 0, 0, 1);
-    const floatSize = Float32Array.BYTES_PER_ELEMENT;
-    const vertSize = floatSize * Quad.VERTEX_SIZE;
-    this.gl.enableVertexAttribArray(this.program.attribute.pos);
-    this.gl.vertexAttribPointer(this.program.attribute.pos, 3, this.gl.FLOAT, false, vertSize, 0 * floatSize);
-    this.gl.enableVertexAttribArray(this.program.attribute.uv);
-    this.gl.vertexAttribPointer(this.program.attribute.uv, 2, this.gl.FLOAT, false, vertSize, 3 * floatSize);
-    this.gl.enableVertexAttribArray(this.program.attribute.color);
-    this.gl.vertexAttribPointer(this.program.attribute.color, 4, this.gl.FLOAT, false, vertSize, 5 * floatSize);
+    const gl = this.gl;
+    const glWrapper = this.phaserRenderer.glWrapper;
+    glWrapper.updateDepthTest({ depthTest: this.depthTest });
+    glWrapper.updateBlend(
+      glState({
+        blend: {
+          enabled: true,
+          color: [0, 0, 0, 0],
+          equation: [gl.FUNC_ADD, gl.FUNC_ADD],
+          func: [gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA],
+        },
+      }),
+    );
+    this.node.activate(this.node.activeMaterial, true);
+    this.setClearColor(0, 0, 0, 1);
   }
 
   flush(): void {
     if (this.bufferIndex === 0) return;
     this._currentDrawCalls++;
     this._currentQuadCount += this.bufferIndex;
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, this.buffer, this.gl.DYNAMIC_DRAW);
+    this.node.upload(this.bufferIndex);
     this.gl.drawArrays(this.gl.TRIANGLES, 0, this.bufferIndex * Quad.VERTICES);
     this.bufferIndex = 0;
   }
@@ -248,33 +186,36 @@ class Renderer {
     this._currentQuadCount = 0;
   }
 
-  setCamera(camera: PerspectiveCamera | OrthoCamera): void {
+  setCamera(camera: PerspectiveCamera): void {
     this.flush();
-    this.gl.uniformMatrix4fv(this.program.uniform.projection, false, camera.projection());
-    this.gl.uniformMatrix4fv(this.program.uniform.view, false, camera.view());
+    this.node.setCamera(camera.view(), camera.projection());
     if (camera.depthTest !== this.depthTest) {
       this.depthTest = camera.depthTest;
-      if (this.depthTest) this.gl.enable(this.gl.DEPTH_TEST);
-      else this.gl.disable(this.gl.DEPTH_TEST);
+      this.phaserRenderer.glWrapper.updateDepthTest({ depthTest: this.depthTest });
     }
   }
 
-  setTexture(texture: WebGLTexture | null): void {
+  setTexture(texture: TPFTexture | null): void {
     texture = texture || this.whiteTexture;
-    if (texture === this.texture) return;
+    if (!texture || texture === this.texture) return;
     this.flush();
     this.texture = texture;
-    this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+    this.phaserRenderer.glTextureUnits.bind(texture, 0);
   }
 
-  setProgram(program: Program, force?: boolean): void {
-    if (program === this.program && !force) return;
+  /** Activates a quad material (null means the default); flushes if the material changes. */
+  setMaterial(material: TPFQuadMaterial | null): void {
+    const next = material || DEFAULT_MATERIAL;
+    const active = this.node.activeMaterial;
+    if (next === active) return;
+    // Same key with no per-quad uniforms renders identically — keep batching, don't flush.
+    if (next.key === active.key && !next.uniforms && !active.uniforms) return;
     this.flush();
-    this.program = program;
-    this.gl.useProgram(this.program.program);
+    this.node.activate(next);
   }
 
   pushQuad(quad: Quad): void {
+    this.setMaterial(quad.material);
     this.setTexture(quad.texture);
     if (this.bufferIndex + 1 >= this.bufferSize) this.flush();
     quad.copyToBuffer(this.buffer, this.bufferIndex * Quad.SIZE);
@@ -283,12 +224,20 @@ class Renderer {
 
   pushMesh(mesh: TileMeshLike): void {
     this.flush();
-    this._currentDrawCalls++;
-    this._currentQuadCount += mesh.length;
+    this.setMaterial(null);
     this.setTexture(mesh.texture);
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, mesh.buffer, this.gl.DYNAMIC_DRAW);
+    this._currentQuadCount += mesh.length;
     const polygonMode = this.wireframe ? this.gl.LINES : this.gl.TRIANGLES;
-    this.gl.drawArrays(polygonMode, 0, mesh.length * Quad.VERTICES);
+    // Meshes upload through the shared Phaser-managed buffer, in chunks if they exceed it.
+    let offset = 0;
+    while (offset < mesh.length) {
+      const chunk = Math.min(mesh.length - offset, this.bufferSize);
+      this.buffer.set(mesh.buffer.subarray(offset * Quad.SIZE, (offset + chunk) * Quad.SIZE));
+      this.node.upload(chunk);
+      this.gl.drawArrays(polygonMode, 0, chunk * Quad.VERTICES);
+      this._currentDrawCalls++;
+      offset += chunk;
+    }
   }
 }
 

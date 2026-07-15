@@ -5,11 +5,10 @@
 import Weapon from './weapon.ts';
 import type { WeaponOpts } from './weapon.ts';
 import TPFEntity from '~/twopointfive/entity.ts';
-import { Tile, HudTile } from '~/twopointfive/world/tile.ts';
+import { Tile } from '~/twopointfive/world/tile.ts';
 import type { ImageInfo, EntityContext, TraceResult } from '~/twopointfive/types.ts';
 
 export interface GrenadeLauncherOpts extends WeaponOpts {
-  ammoIconImage?: ImageInfo | null;
   EntityGrenade?: new (
     x: number,
     y: number,
@@ -20,7 +19,6 @@ export interface GrenadeLauncherOpts extends WeaponOpts {
 
 /** Grenade launcher: spawns EntityGrenade with angle; depleted() plays empty sound. */
 class WeaponGrenadeLauncher extends Weapon {
-  ammoIconImage: ImageInfo | null;
   EntityGrenade: GrenadeLauncherOpts['EntityGrenade'] | null;
 
   constructor(opts?: GrenadeLauncherOpts) {
@@ -40,12 +38,6 @@ class WeaponGrenadeLauncher extends Weapon {
 
     this.addAnim('idle', 100, [0]);
     this.addAnim('shoot', 0.1, [1, 0], true);
-
-    this.ammoIconImage = opts.ammoIconImage || null;
-    if (this.ammoIconImage) {
-      this.ammoIcon = new HudTile(this.ammoIconImage, 0, 32, 32);
-      this.ammoIcon.setPosition(200, 460);
-    }
 
     this.EntityGrenade = opts.EntityGrenade || null;
   }
