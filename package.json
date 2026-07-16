@@ -1,6 +1,6 @@
 {
   "name": "twopointfive-phaser-4",
-  "version": "26.7.0",
+  "version": "26.7.1",
   "description": "TwoPointFive 2.5D Plugin for Phaser 4",
   "main": "src/twopointfive/two-point-five-plugin.ts",
   "scripts": {
