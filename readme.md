@@ -50,6 +50,151 @@ plugins: {
 
 3. Entity classes should extend `TPF.TPFEntity` and receive a `context` (collisionMap, culledSectors, renderer, camera, gravity, tick). Use `this.context` in `update()` and `updateQuad()`.
 
+### Configuring the view
+
+The camera and render target are configured through a single view object. Every field is optional
+and updates merge, so you only name what you want to change. Changes apply immediately.
+
+```javascript
+this.tpf.setView({ fov: 90 });                       // just the field of view
+this.tpf.setView({ fovAxis: 'horizontal', fov: 100 });
+this.tpf.setView({ maxAspect: '21:9' });              // stop widening past ultrawide
+this.tpf.setView({ aspect: '4:3' });                  // 4:3 view inside any canvas shape
+```
+
+To configure before the first frame renders, pass it as plugin boot data instead:
+
+```javascript
+plugins: {
+  global: [
+    { key: 'TwoPointFivePlugin', plugin: TwoPointFivePlugin, start: true,
+      data: { view: { fov: 90 } } }
+  ]
+}
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `aspect` | `null` | Locks the 2.5D view to this ratio (`16 / 9`, `'4:3'`), centred in the canvas with bars on the two spare sides. `null` fills the canvas. |
+| `resolution` | `null` | Renders the world at this size and scales it onto the screen. A number is the height in pixels (width follows the view's shape); `{ width, height }` is explicit. |
+| `scale` | `null` | Renders the world at this fraction of its on-screen size. `0.5` halves it; `2` supersamples. Ignored if `resolution` is set. |
+| `filter` | `'nearest'` | How the world is sampled when scaled. `'nearest'` for hard retro pixels, `'linear'` for smoothing (use with supersampling). |
+| `fov` | `75` | Field of view in degrees, on the axis given by `fovAxis`. |
+| `fovAxis` | `'vertical'` | `'vertical'` keeps the vertical view fixed so a wider viewport shows more to the sides (classic FPS behaviour). `'horizontal'` keeps the horizontal view fixed instead. |
+| `maxAspect` | `null` | Stops the horizontal view widening past this aspect (`1.75`, `'21:9'`). Useful to keep ultrawide viewports from looking distorted. No effect when `fovAxis` is `'horizontal'`. |
+| `near` / `far` | `1` / `10000` | Clip plane distances in world units. |
+| `preset` | — | Named shorthand applied before the other fields in the same call. Currently `'fill'`. |
+
+`this.tpf.fov` still works as a plain property and now applies immediately when assigned.
+
+**Reading the view.** `this.tpf.getView()` returns the resolved result — never recompute these by
+hand:
+
+```javascript
+const view = this.tpf.getView();
+view.canvas;    // { width, height } of the drawing buffer
+view.world;     // { x, y, width, height } the 2.5D view occupies within the canvas
+view.internal;  // { width, height } the world is rendered at
+view.aspect;    // width / height of view.world
+view.fov;       // { vertical, horizontal } effective degrees, after fovAxis and maxAspect
+view.near;      // clip plane distances
+view.far;
+```
+
+**Fixed aspect ratio.** With `aspect` set, the 2.5D view becomes a centred rectangle and the spare
+space on the two remaining sides shows the Phaser game's `backgroundColor`. The HUD still covers the
+whole canvas, so anchor HUD elements to `view.world` — its `x`/`y` are the view's top-left corner,
+which is no longer `0, 0`:
+
+```javascript
+const { x, y, width, height } = this.tpf.getView().world;
+healthIcon.setPosition(x + 96, y + height - 20);   // bottom-left of the 2.5D view
+```
+
+Position HUD elements against `view.world` rather than the canvas size, so they stay correct
+whether or not the world has its own aspect ratio. To follow changes, listen for `viewchange`:
+
+```javascript
+this.tpf.events.on('viewchange', (view) => {
+  healthIcon.setPosition(view.world.x + 96, view.world.y + view.world.height - 20);
+});
+```
+
+Invalid values (a negative `fov`, a malformed aspect string, `far` below `near`) log one warning,
+keep the previous value, and never throw.
+
+### Internal resolution
+
+The 2.5D world can render at its own resolution, independent of the canvas. It goes into an
+off-screen buffer and is scaled onto its on-screen rectangle, so the HUD, text, and any other Phaser
+Game Objects stay crisp at full canvas resolution:
+
+```javascript
+this.tpf.setView({ resolution: 240 });                  // chunky 240p world, sharp HUD
+this.tpf.setView({ scale: 0.5 });                       // half resolution, whatever the canvas size
+this.tpf.setView({ scale: 2, filter: 'linear' });       // supersampled: renders 2x, downsamples
+this.tpf.setView({ resolution: null, scale: null });    // back to rendering at screen resolution
+```
+
+Press **R** in the demo to cycle native → 240p → 120p → 2× supersampled and watch the HUD stay sharp.
+
+The projection always uses the on-screen rectangle's aspect ratio, so the internal size only changes
+how densely the image is sampled — it never distorts geometry. A `{ width, height }` whose ratio
+differs from the view's is therefore legal; it just samples one axis more finely than the other.
+
+This is the setting to combine with `Scale.RESIZE` below: let the canvas and HUD match the window
+while the world's cost stays bounded.
+
+```javascript
+// Crisp HUD at window resolution, world capped at 720p
+const { width, height } = this.tpf.getView().canvas;
+this.tpf.setView({ resolution: Math.min(height, 720) });
+```
+
+The off-screen buffer is allocated only while it is needed, resized when the resolution or the
+canvas changes, and freed when you clear the setting.
+
+### Sizing the canvas to the window
+
+The canvas drawing buffer is the game config's `width`/`height`: Phaser sets `canvas.width` from
+them directly, so those numbers are the internal render resolution and their ratio is the aspect.
+The Phaser scale mode decides whether they stay fixed:
+
+| Mode | Buffer | Use when |
+| --- | --- | --- |
+| `Scale.FIT` | fixed at `width`×`height`, upscaled by CSS | you want one predictable resolution |
+| `Scale.EXPAND` | one axis pinned to the config, the other grows to fill the parent | you want the window's shape without unbounded cost — **the demo's default** |
+| `Scale.RESIZE` | matches the parent exactly | you want native sizing and accept the fill cost |
+
+The engine follows all three automatically: a canvas resize re-resolves the view and emits
+`viewchange`. Two things to get right:
+
+1. **The parent element needs real dimensions.** `EXPAND` and `RESIZE` derive the canvas from the
+   parent's bounding box, so a bare `<div>` in a centring flex container collapses or feeds back
+   against the canvas inside it. Give it a size — the demo uses `#game { position: fixed; inset: 0 }`.
+2. **Lay the HUD out from `viewchange`**, not once at create. See `layoutHud` in
+   `src/phaser-game.ts` for the pattern.
+
+Two behaviours of Phaser's ScaleManager are worth knowing, since neither is obvious:
+
+- Under `EXPAND`/`RESIZE`, `game.scale.resize(w, h)` has no lasting effect — the next `updateScale`
+  recomputes the size from the parent and overwrites it. Resize the parent element instead.
+- `refresh()` reads the parent size captured at the end of the *previous* refresh. Call
+  `getParentBounds()` first if you need it applied immediately; the normal per-frame path already
+  samples it, so this only matters when driving a resize by hand.
+
+**High-DPI displays.** No mode accounts for `devicePixelRatio`: the buffer is sized in CSS pixels, so
+a 2× display upscales and looks slightly soft. `EXPAND`/`RESIZE` cannot be corrected after the fact
+because `updateScale` reassigns `canvas.width` on every refresh. For native crispness use
+`Scale.NONE` with your own resize listener:
+
+```javascript
+const dpr = window.devicePixelRatio || 1;
+window.addEventListener('resize', () => {
+  game.scale.resize(window.innerWidth * dpr, window.innerHeight * dpr);
+});
+```
+
 ### Level format
 
 Keep the Impact/Weltmeister level structure: `layer[]` with `name` (floor, ceiling, walls, collision, light), `tilesize`, `data` (2D array), `tilesetName`; and `entities[]` with `type`, `x`, `y`, `settings`. Export level as JSON and load with `scene.load.json('level', url)`.

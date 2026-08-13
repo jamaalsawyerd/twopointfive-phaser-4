@@ -5,8 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TwoPointFive Phaser 4</title>
   <style>
-    body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    #game { display: block; }
+    /* Scale.EXPAND sizes the canvas from the parent element's bounding box, so the parent needs
+       real dimensions of its own. A bare div in a centring flex container has none and collapses,
+       or feeds back against the canvas it contains. */
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    #game { position: fixed; inset: 0; }
   </style>
 </head>
 <body>

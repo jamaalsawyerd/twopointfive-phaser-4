@@ -15,6 +15,9 @@ export interface WeaponOpts {
   tileHeight?: number;
   hudWidth?: number;
   hudHeight?: number;
+  /** Top-left of the view the weapon is anchored to; pass `getView().world` x/y when it is inset. */
+  hudX?: number;
+  hudY?: number;
   gameState?: GameState | null;
   sounds?: Record<string, { play(): void }>;
   onAmmoChange?: (ammo: number) => void;
@@ -51,6 +54,8 @@ class Weapon {
   tileHeight: number;
   hudWidth: number;
   hudHeight: number;
+  hudX: number;
+  hudY: number;
 
   gameState: GameState | null;
   sounds: Record<string, { play(): void }>;
@@ -84,6 +89,8 @@ class Weapon {
     this.tileHeight = opts.tileHeight || 0;
     this.hudWidth = opts.hudWidth || 640;
     this.hudHeight = opts.hudHeight || 480;
+    this.hudX = opts.hudX || 0;
+    this.hudY = opts.hudY || 0;
 
     this.gameState = opts.gameState || null;
     this.sounds = (opts.sounds || {}) as Record<string, { play(): void }>;
@@ -96,9 +103,7 @@ class Weapon {
         .setScrollFactor(0)
         .setDepth(opts.depth ?? 900);
     }
-    this.pos.x = this.hudWidth / 2 - this.tileWidth / 2 - this.offset.x;
-    this.pos.y = this.hudHeight - this.offset.y;
-    this.updateHudPosition();
+    this.updateHudAnchor();
   }
 
   addAnim(name: string, frameTime: number, sequence: number[], stop?: boolean): Animation {
@@ -115,6 +120,27 @@ class Weapon {
     if (this.phaserImage) {
       this.phaserImage.setFrame(tile);
     }
+  }
+
+  /** Re-anchors to a new view rectangle, e.g. from the plugin's `viewchange` event. */
+  setHudRect(rect: { x: number; y: number; width: number; height: number }): void {
+    this.hudX = rect.x;
+    this.hudY = rect.y;
+    this.hudWidth = rect.width;
+    this.hudHeight = rect.height;
+    this.updateHudAnchor();
+  }
+
+  /**
+   * Recomputes the weapon's resting position: centred horizontally on the view it is anchored to
+   * and sitting on its bottom edge, less `offset`. Subclasses that change `offset` or the tile size
+   * after `super()` must call this again rather than repeating the arithmetic, or they will drop
+   * the hudX/hudY origin and mis-place the weapon when the view is inset in the canvas.
+   */
+  updateHudAnchor(): void {
+    this.pos.x = this.hudX + this.hudWidth / 2 - this.tileWidth / 2 - this.offset.x;
+    this.pos.y = this.hudY + this.hudHeight - this.offset.y;
+    this.updateHudPosition();
   }
 
   updateHudPosition(): void {

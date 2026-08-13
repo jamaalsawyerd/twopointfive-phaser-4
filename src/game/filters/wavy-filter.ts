@@ -32,7 +32,7 @@ const FRAGMENT_SHADER = [
   'uniform float uTime;',
   'varying vec2 outTexCoord;',
   'void main () {',
-  '  // Displace each pixel\'s sample position with two perpendicular sine waves. Amplitude is',
+  "  // Displace each pixel's sample position with two perpendicular sine waves. Amplitude is",
   '  // specified in pixels and converted per-axis so the wobble is aspect-ratio independent.',
   '  vec2 amp = uIntensity * uAmplitude / uResolution;',
   '  vec2 uv = outTexCoord;',

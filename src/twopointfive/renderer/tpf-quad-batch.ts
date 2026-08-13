@@ -26,6 +26,12 @@ export interface TPFMaterialConfig {
   fragmentBody?: string;
   /** Default uniform values applied when the material is activated. */
   uniforms?: Record<string, number | number[]>;
+  /**
+   * Whether to discard nearly-transparent texels (the default, which is what keeps billboard
+   * sprites from writing depth around their cutouts). Set false for materials that must keep every
+   * texel, such as a full-screen blit or an additive effect.
+   */
+  alphaDiscard?: boolean;
 }
 
 interface ProgramSuite {
@@ -76,7 +82,7 @@ function composeFragmentShader(material: TPFMaterialConfig, fog: boolean): strin
     material.fragmentUniforms || '',
     'void main(void) {',
     '  vec4 tex = texture2D(texture, vUv);',
-    '  if( tex.a < 0.8 ) discard;',
+    material.alphaDiscard === false ? '' : '  if( tex.a < 0.8 ) discard;',
     '  gl_FragColor = tex * vColor;',
     material.fragmentBody || '',
     fog ? FogSnippets.Apply : '',

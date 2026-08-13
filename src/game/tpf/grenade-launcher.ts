@@ -32,9 +32,8 @@ class WeaponGrenadeLauncher extends Weapon {
     this.maxAmmo = 80;
     this.cooldown = 0.5;
 
-    this.pos.x = this.hudWidth / 2 - this.tileWidth / 2 - this.offset.x;
-    this.pos.y = this.hudHeight - this.offset.y;
-    this.updateHudPosition();
+    // offset changed above, so re-anchor (this also applies the hudX/hudY view origin).
+    this.updateHudAnchor();
 
     this.addAnim('idle', 100, [0]);
     this.addAnim('shoot', 0.1, [1, 0], true);

@@ -20,12 +20,20 @@ import { HudBlood } from '~/game/tpf/hud-blood.ts';
 import { WAVY_FILTER_NODE, FilterWavyRenderNode, WavyFilterController } from '~/game/filters/wavy-filter.ts';
 import WebFontFile from '~/game/util/web-font-file.ts';
 import type TPFEntity from '~/twopointfive/entity.ts';
-import type { ImageInfo, EntityContext, LevelData } from '~/twopointfive/types.ts';
+import type { ImageInfo, EntityContext, LevelData, TPFResolvedView, TPFViewConfig } from '~/twopointfive/types.ts';
 import type { TPFSoundEntry } from '~/twopointfive/sound-controller.ts';
 import type Map from '~/twopointfive/world/map.ts';
 
-const WIDTH = 640;
-const HEIGHT = 480;
+const WIDTH = 1280;
+const HEIGHT = 720;
+
+/** Internal-resolution steps cycled by the R key; see the keybind in create(). */
+const RESOLUTION_STEPS: { label: string; view: TPFViewConfig }[] = [
+  { label: 'native (720p)', view: { resolution: null, scale: null, filter: 'nearest' } },
+  { label: '480p', view: { resolution: 480, scale: null, filter: 'nearest' } },
+  { label: '240p', view: { resolution: 240, scale: null, filter: 'nearest' } },
+  { label: '2x SSAA', view: { resolution: null, scale: 2, filter: 'linear' } },
+];
 
 /** Single scene: loads level into tpf, creates player and weapon, HUD, pointer lock, and TpfExtern. */
 export class MainScene extends Phaser.Scene {
@@ -62,6 +70,7 @@ export class MainScene extends Phaser.Scene {
   _wavyWeaponFilter: WavyFilterController | null;
   _gShaderOn: boolean;
   _pulseUniforms: { time: number };
+  _resolutionStep: number;
 
   constructor() {
     super({ key: 'Main' });
@@ -96,6 +105,7 @@ export class MainScene extends Phaser.Scene {
     this._wavyWeaponFilter = null;
     this._gShaderOn = false;
     this._pulseUniforms = { time: 0 };
+    this._resolutionStep = 0;
   }
 
   preload(): void {
@@ -137,6 +147,12 @@ export class MainScene extends Phaser.Scene {
       this.time.delayedCall(100, () => this.scene.restart());
       return;
     }
+
+    // Lay the HUD and weapon out against the resolved view rather than the WIDTH/HEIGHT config
+    // constants. `world` is the rectangle the 2.5D view occupies; it currently fills the canvas but
+    // will not once the world can be given its own aspect ratio, so anchoring to it now keeps this
+    // correct either way.
+    const view = tpf.getView();
 
     tpf.setTileset('media/tiles/basic-tiles-64.png', 'tiles');
     tpf.setTileset('media/tiles/lights-64.png', 'lights');
@@ -253,8 +269,10 @@ export class MainScene extends Phaser.Scene {
           depth: 900,
           tileWidth: 180,
           tileHeight: 134,
-          hudWidth: WIDTH,
-          hudHeight: HEIGHT,
+          hudWidth: view.world.width,
+          hudHeight: view.world.height,
+          hudX: view.world.x,
+          hudY: view.world.y,
           gameState: tpf.getGameState(),
           sounds: {
             shoot: this._sounds.shoot as { play(): void },
@@ -298,32 +316,29 @@ export class MainScene extends Phaser.Scene {
     };
 
     this._hudHealthIcon = this.add
-      .image(96, HEIGHT - 20, 'health-icon')
+      .image(0, 0, 'health-icon')
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(1000)
       .setDisplaySize(32, 32);
-    this._hudHealthText = this.add
-      .text(80, HEIGHT - 20, '100', hudStyle)
-      .setOrigin(1, 0.5)
-      .setScrollFactor(0)
-      .setDepth(1000);
+    this._hudHealthText = this.add.text(0, 0, '100', hudStyle).setOrigin(1, 0.5).setScrollFactor(0).setDepth(1000);
 
     this._hudAmmoIcon = this.add
-      .image(215, HEIGHT - 20, 'grenade')
+      .image(0, 0, 'grenade')
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(1000)
       .setDisplaySize(32, 32);
-    this._hudAmmoText = this.add
-      .text(199, HEIGHT - 20, '16', hudStyle)
-      .setOrigin(1, 0.5)
-      .setScrollFactor(0)
-      .setDepth(1000);
+    this._hudAmmoText = this.add.text(0, 0, '16', hudStyle).setOrigin(1, 0.5).setScrollFactor(0).setDepth(1000);
 
-    this._hudKillsText = this.add.text(32, 8, 'Kills: 0', hudStyle).setOrigin(0, 0).setScrollFactor(0).setDepth(1000);
+    this._hudKillsText = this.add.text(0, 0, 'Kills: 0', hudStyle).setOrigin(0, 0).setScrollFactor(0).setDepth(1000);
 
-    this._hudBlood = new HudBlood(this, { viewWidth: WIDTH, viewHeight: HEIGHT });
+    this._hudBlood = new HudBlood(this, {
+      viewWidth: view.world.width,
+      viewHeight: view.world.height,
+      viewX: view.world.x,
+      viewY: view.world.y,
+    });
 
     const deathStyle: Phaser.Types.GameObjects.Text.TextStyle = {
       fontFamily: '"Fredoka One", Arial, sans-serif',
@@ -334,11 +349,18 @@ export class MainScene extends Phaser.Scene {
       align: 'center',
     };
     this._deathText = this.add
-      .text(WIDTH / 2, HEIGHT / 2, 'You are Dead!', deathStyle)
+      .text(0, 0, 'You are Dead!', deathStyle)
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(2000)
       .setVisible(false);
+
+    // Place everything now, then again whenever the view changes. `viewchange` covers both canvas
+    // resizes (Scale.EXPAND/RESIZE) and programmatic setView calls, so this is the only place HUD
+    // positions are computed. Subscribing in create() is deliberate: the plugin drops listeners on
+    // scene shutdown, so a restarted scene re-subscribes with its new Game Objects.
+    this.layoutHud(view);
+    tpf.events.on('viewchange', this.layoutHud, this);
 
     // Example: press F to toggle the wavy filter. Demonstrates adding a custom GLSL shader via the
     // Phaser 4 Filters hook. It is applied both to the world (the Extern) and to the first-person
@@ -380,6 +402,19 @@ export class MainScene extends Phaser.Scene {
       // Turning on needs no work here: the per-frame sweep in update() applies the material.
     });
 
+    // Example: press R to cycle the world's internal resolution. The 2.5D world renders into an
+    // off-screen target at the chosen size and is scaled onto its on-screen rectangle, while the
+    // HUD text and weapon stay crisp at canvas resolution — note how the readouts below never get
+    // chunky. The last step renders at double resolution and downsamples, which is supersampling:
+    // a cheap anti-alias rather than a retro look.
+    this._resolutionStep = 0;
+    this.input.keyboard?.on('keydown-R', (event: KeyboardEvent) => {
+      if (event.repeat) return;
+      this._resolutionStep = (this._resolutionStep + 1) % RESOLUTION_STEPS.length;
+      this.tpf.setView(RESOLUTION_STEPS[this._resolutionStep].view);
+      this.updateKillsText();
+    });
+
     this._wavyFilter = null;
     this._wavyWeaponFilter = null;
     this.input.keyboard?.on('keydown-F', (event: KeyboardEvent) => {
@@ -415,6 +450,26 @@ export class MainScene extends Phaser.Scene {
         }
       }
     });
+  }
+
+  /**
+   * Positions every HUD element against the 2.5D view's rectangle. Runs on create and on each
+   * `viewchange`, so a canvas resize or an aspect-ratio change needs no other bookkeeping.
+   * Anchoring to `view.world` rather than the canvas keeps the HUD attached to the 2.5D view when
+   * that view is inset (letterboxed or pillarboxed) rather than filling the canvas.
+   */
+  layoutHud(view: TPFResolvedView): void {
+    const { x, y, width, height } = view.world;
+    const bottom = y + height;
+
+    this._hudHealthIcon?.setPosition(x + 96, bottom - 20);
+    this._hudHealthText?.setPosition(x + 80, bottom - 20);
+    this._hudAmmoIcon?.setPosition(x + 215, bottom - 20);
+    this._hudAmmoText?.setPosition(x + 199, bottom - 20);
+    this._hudKillsText?.setPosition(x + 32, y + 8);
+    this._deathText?.setPosition(x + width / 2, y + height / 2);
+    this._hudBlood?.setViewRect(view.world);
+    this._player?.currentWeapon?.setHudRect(view.world);
   }
 
   showDeathAnim(): void {
@@ -468,7 +523,13 @@ export class MainScene extends Phaser.Scene {
 
   incrementKillCount(): void {
     this._killCount++;
-    if (this._hudKillsText) this._hudKillsText.setText(`Kills: ${String(this._killCount)}`);
+    this.updateKillsText();
+  }
+
+  /** Kill count plus the current internal-resolution step, so both writers share one format. */
+  updateKillsText(): void {
+    const suffix = this._resolutionStep === 0 ? '' : `  [${RESOLUTION_STEPS[this._resolutionStep].label}]`;
+    if (this._hudKillsText) this._hudKillsText.setText(`Kills: ${String(this._killCount)}${suffix}`);
   }
 
   getRandomSpawnPos(): { x: number; y: number } {
@@ -624,7 +685,15 @@ const config: Phaser.Types.Core.GameConfig = {
   parent: 'game',
   backgroundColor: '#000',
   scale: {
-    mode: Phaser.Scale.FIT,
+    // EXPAND pins one axis to the width/height above and grows the other to fill the parent, so the
+    // internal resolution stays bounded (480 tall here) while the aspect ratio follows the window.
+    // The engine picks the new size up through the plugin's `viewchange` event.
+    //   Phaser.Scale.FIT    - fixed 640x480 buffer, letterboxed by CSS (the previous behaviour)
+    //   Phaser.Scale.RESIZE - buffer matches the parent exactly; native sizing, unbounded fill cost
+    // Neither EXPAND nor RESIZE accounts for devicePixelRatio: the buffer is sized in CSS pixels, so
+    // a HiDPI display upscales. For native crispness use Scale.NONE with your own resize listener
+    // calling game.scale.resize(cssWidth * dpr, cssHeight * dpr).
+    mode: Phaser.Scale.EXPAND,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   render: {
