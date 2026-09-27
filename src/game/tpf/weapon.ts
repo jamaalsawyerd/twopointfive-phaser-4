@@ -56,6 +56,13 @@ class Weapon {
   hudHeight: number;
   hudX: number;
   hudY: number;
+  /**
+   * View height the art is drawn 1:1 at, or 0 to never scale it. When set, the image scales with the
+   * view's height alone, so its on-screen size does not depend on the window's width.
+   */
+  hudReferenceHeight: number;
+  /** Scale the HUD image is drawn at; recomputed by updateHudAnchor(). */
+  hudScale: number;
 
   gameState: GameState | null;
   sounds: Record<string, { play(): void }>;
@@ -91,6 +98,8 @@ class Weapon {
     this.hudHeight = opts.hudHeight || 480;
     this.hudX = opts.hudX || 0;
     this.hudY = opts.hudY || 0;
+    this.hudReferenceHeight = 0;
+    this.hudScale = 1;
 
     this.gameState = opts.gameState || null;
     this.sounds = (opts.sounds || {}) as Record<string, { play(): void }>;
@@ -133,18 +142,21 @@ class Weapon {
 
   /**
    * Recomputes the weapon's resting position: centred horizontally on the view it is anchored to
-   * and sitting on its bottom edge, less `offset`. Subclasses that change `offset` or the tile size
-   * after `super()` must call this again rather than repeating the arithmetic, or they will drop
-   * the hudX/hudY origin and mis-place the weapon when the view is inset in the canvas.
+   * and sitting on its bottom edge, less `offset`. Subclasses that change `offset`, the tile size or
+   * `hudReferenceHeight` after `super()` must call this again rather than repeating the arithmetic,
+   * or they will drop the hudX/hudY origin and mis-place the weapon when the view is inset in the canvas.
    */
   updateHudAnchor(): void {
-    this.pos.x = this.hudX + this.hudWidth / 2 - this.tileWidth / 2 - this.offset.x;
-    this.pos.y = this.hudY + this.hudHeight - this.offset.y;
+    this.hudScale = this.hudReferenceHeight ? this.hudHeight / this.hudReferenceHeight : 1;
+    if (this.phaserImage) this.phaserImage.setScale(this.hudScale);
+    // offset and the tile size are in art pixels, so they scale with the image.
+    this.pos.x = this.hudX + this.hudWidth / 2 - (this.tileWidth / 2 + this.offset.x) * this.hudScale;
+    this.pos.y = this.hudY + this.hudHeight - this.offset.y * this.hudScale;
     this.updateHudPosition();
   }
 
   updateHudPosition(): void {
-    if (this.phaserImage) this.phaserImage.setPosition(this.pos.x, this.pos.y + this.bobOffset);
+    if (this.phaserImage) this.phaserImage.setPosition(this.pos.x, this.pos.y + this.bobOffset * this.hudScale);
   }
 
   trigger(x: number, y: number, angle: number): void {

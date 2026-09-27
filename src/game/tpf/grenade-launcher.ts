@@ -29,10 +29,13 @@ class WeaponGrenadeLauncher extends Weapon {
     super(merged);
 
     this.offset = { x: 0, y: 128 };
+    // The art is sized for a 720px-tall view. Scaling from the view's height keeps it the same size on
+    // screen when a window narrower than 16:9 makes Scale.EXPAND pin the canvas width and grow its height.
+    this.hudReferenceHeight = 720;
     this.maxAmmo = 80;
     this.cooldown = 0.5;
 
-    // offset changed above, so re-anchor (this also applies the hudX/hudY view origin).
+    // offset and hudReferenceHeight changed above, so re-anchor (this also applies the hudX/hudY view origin).
     this.updateHudAnchor();
 
     this.addAnim('idle', 100, [0]);

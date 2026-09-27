@@ -315,23 +315,14 @@ export class MainScene extends Phaser.Scene {
       strokeThickness: 3,
     };
 
-    this._hudHealthIcon = this.add
-      .image(0, 0, 'health-icon')
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(1000)
-      .setDisplaySize(32, 32);
-    this._hudHealthText = this.add.text(0, 0, '100', hudStyle).setOrigin(1, 0.5).setScrollFactor(0).setDepth(1000);
+    // Sizes and positions are set by layoutHud().
+    this._hudHealthIcon = this.add.image(0, 0, 'health-icon').setOrigin(0.5).setScrollFactor(0).setDepth(1000);
+    this._hudHealthText = this.add.text(0, 0, '100', hudStyle).setOrigin(0, 0.5).setScrollFactor(0).setDepth(1000);
 
-    this._hudAmmoIcon = this.add
-      .image(0, 0, 'grenade')
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(1000)
-      .setDisplaySize(32, 32);
-    this._hudAmmoText = this.add.text(0, 0, '16', hudStyle).setOrigin(1, 0.5).setScrollFactor(0).setDepth(1000);
+    this._hudAmmoIcon = this.add.image(0, 0, 'grenade').setOrigin(0.5).setScrollFactor(0).setDepth(1000);
+    this._hudAmmoText = this.add.text(0, 0, '16', hudStyle).setOrigin(0, 0.5).setScrollFactor(0).setDepth(1000);
 
-    this._hudKillsText = this.add.text(0, 0, 'Kills: 0', hudStyle).setOrigin(0, 0).setScrollFactor(0).setDepth(1000);
+    this._hudKillsText = this.add.text(0, 0, 'Kills: 0', hudStyle).setOrigin(0, 0.5).setScrollFactor(0).setDepth(1000);
 
     this._hudBlood = new HudBlood(this, {
       viewWidth: view.world.width,
@@ -453,22 +444,28 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Positions every HUD element against the 2.5D view's rectangle. Runs on create and on each
-   * `viewchange`, so a canvas resize or an aspect-ratio change needs no other bookkeeping.
+   * Positions and sizes every HUD element against the 2.5D view's rectangle. Runs on create and on
+   * each `viewchange`, so a canvas resize or an aspect-ratio change needs no other bookkeeping.
    * Anchoring to `view.world` rather than the canvas keeps the HUD attached to the 2.5D view when
    * that view is inset (letterboxed or pillarboxed) rather than filling the canvas.
    */
   layoutHud(view: TPFResolvedView): void {
     const { x, y, width, height } = view.world;
-    const bottom = y + height;
+    // Sizes and offsets below are pixels at the config HEIGHT. Scaling them with the view's height, as
+    // the weapon does, keeps the HUD the same size on screen when a window narrower than 16:9 makes
+    // Scale.EXPAND grow the canvas height instead.
+    const s = height / HEIGHT;
+    const left = x + 32 * s;
+    const row = (i: number): number => y + (24 + 40 * i) * s;
 
-    this._hudHealthIcon?.setPosition(x + 96, bottom - 20);
-    this._hudHealthText?.setPosition(x + 80, bottom - 20);
-    this._hudAmmoIcon?.setPosition(x + 215, bottom - 20);
-    this._hudAmmoText?.setPosition(x + 199, bottom - 20);
-    this._hudKillsText?.setPosition(x + 32, y + 8);
-    this._deathText?.setPosition(x + width / 2, y + height / 2);
-    this._hudBlood?.setViewRect(view.world);
+    // Kills, health, then grenades down the left edge; icons in a column with their values beside them.
+    this._hudKillsText?.setScale(s).setPosition(left, row(0));
+    this._hudHealthIcon?.setDisplaySize(32 * s, 32 * s).setPosition(left + 16 * s, row(1));
+    this._hudHealthText?.setScale(s).setPosition(left + 40 * s, row(1));
+    this._hudAmmoIcon?.setDisplaySize(32 * s, 32 * s).setPosition(left + 16 * s, row(2));
+    this._hudAmmoText?.setScale(s).setPosition(left + 40 * s, row(2));
+    this._deathText?.setScale(s).setPosition(x + width / 2, y + height / 2);
+    this._hudBlood?.setViewRect(view.world, s);
     this._player?.currentWeapon?.setHudRect(view.world);
   }
 

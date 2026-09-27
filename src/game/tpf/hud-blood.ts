@@ -33,17 +33,18 @@ export class HudBlood {
     this._image = scene.add.image(0, 0, 'hud-blood').setOrigin(0, 0).setScrollFactor(0).setDepth(999).setAlpha(0);
   }
 
-  /** Re-anchors to a new view rectangle, e.g. from the plugin's `viewchange` event. */
-  setViewRect(rect: { x: number; y: number; width: number; height: number }): void {
+  /** Re-anchors to a new view rectangle, e.g. from the plugin's `viewchange` event; `scale` sizes the splat. */
+  setViewRect(rect: { x: number; y: number; width: number; height: number }, scale = 1): void {
     this._viewX = rect.x;
     this._viewY = rect.y;
     this._viewWidth = rect.width;
     this._viewHeight = rect.height;
+    this._image.setScale(scale);
   }
 
   show(): void {
-    const x = this._viewX + Math.random() * (this._viewWidth - 160);
-    const y = this._viewY + Math.random() * (this._viewHeight - 120);
+    const x = this._viewX + Math.random() * (this._viewWidth - this._image.displayWidth);
+    const y = this._viewY + Math.random() * (this._viewHeight - this._image.displayHeight);
     this._image.setPosition(x, y);
     this._image.setAlpha(1);
     this._scene.tweens.killTweensOf(this._image);
