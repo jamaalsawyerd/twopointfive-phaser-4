@@ -54,6 +54,23 @@ const MINIMAP_LAYER_KEYS: { key: string; layer: MinimapLayer }[] = [
   { key: 'FOUR', layer: 'pickups' },
 ];
 
+/** The special keys, listed in the bottom-left corner. Add new toggles here as well as binding them in create(). */
+const CONTROLS_HELP: { keys: string; action: string }[] = [
+  { keys: 'G', action: 'entity shader' },
+  { keys: 'F', action: 'wavy filter' },
+  { keys: 'R', action: 'resolution' },
+  { keys: 'M', action: 'minimap' },
+  // One line per layer keeps the column narrow enough to stay clear of the weapon in tall windows.
+  { keys: '1', action: 'map layer' },
+  { keys: '2', action: 'player layer' },
+  { keys: '3', action: 'enemies layer' },
+  { keys: '4', action: 'pickups layer' },
+  { keys: '[ ]', action: 'minimap zoom' },
+  { keys: 'V', action: 'fog of war' },
+  { keys: 'X', action: 'automap' },
+  { keys: 'P', action: 'enemies on/off' },
+];
+
 /** Single scene: loads level into tpf, creates player and weapon, HUD, pointer lock, and TpfExtern. */
 export class MainScene extends Phaser.Scene {
   declare tpf: TwoPointFiveScenePlugin;
@@ -84,6 +101,8 @@ export class MainScene extends Phaser.Scene {
   _hudAmmoIcon: Phaser.GameObjects.Image | null;
   _hudAmmoText: Phaser.GameObjects.Text | null;
   _hudKillsText: Phaser.GameObjects.Text | null;
+  _hudHelpKeys: Phaser.GameObjects.Text | null;
+  _hudHelpActions: Phaser.GameObjects.Text | null;
   _hudBlood: HudBlood | null;
   _hudMinimap: HudMinimap | null;
   _wavyFilter: WavyFilterController | null;
@@ -122,6 +141,8 @@ export class MainScene extends Phaser.Scene {
     this._hudAmmoIcon = null;
     this._hudAmmoText = null;
     this._hudKillsText = null;
+    this._hudHelpKeys = null;
+    this._hudHelpActions = null;
     this._hudBlood = null;
     this._hudMinimap = null;
     this._wavyFilter = null;
@@ -348,6 +369,20 @@ export class MainScene extends Phaser.Scene {
 
     this._hudKillsText = this.add.text(0, 0, 'Kills: 0', hudStyle).setOrigin(0, 0.5).setScrollFactor(0).setDepth(1000);
 
+    // The controls list: two columns, keys right-aligned beside their actions. Both texts share a font size
+    // and line spacing, so their lines stay level; layoutHud() places the actions just past the keys.
+    const helpStyle: Phaser.Types.GameObjects.Text.TextStyle = { ...hudStyle, fontSize: '16px', lineSpacing: 2 };
+    this._hudHelpKeys = this.add
+      .text(0, 0, CONTROLS_HELP.map((c) => c.keys).join('\n'), { ...helpStyle, color: '#ffd84a', align: 'right' })
+      .setOrigin(0, 1)
+      .setScrollFactor(0)
+      .setDepth(1000);
+    this._hudHelpActions = this.add
+      .text(0, 0, CONTROLS_HELP.map((c) => c.action).join('\n'), helpStyle)
+      .setOrigin(0, 1)
+      .setScrollFactor(0)
+      .setDepth(1000);
+
     this._hudBlood = new HudBlood(this, {
       viewWidth: view.world.width,
       viewHeight: view.world.height,
@@ -552,6 +587,10 @@ export class MainScene extends Phaser.Scene {
     this._hudHealthText?.setScale(s).setPosition(left + 40 * s, row(1));
     this._hudAmmoIcon?.setDisplaySize(32 * s, 32 * s).setPosition(left + 16 * s, row(2));
     this._hudAmmoText?.setScale(s).setPosition(left + 40 * s, row(2));
+    // Controls list in the bottom-left corner, keys first and the actions just past the widest key.
+    const bottom = y + height - 24 * s;
+    this._hudHelpKeys?.setScale(s).setPosition(left, bottom);
+    this._hudHelpActions?.setScale(s).setPosition(left + (this._hudHelpKeys?.displayWidth ?? 0) + 8 * s, bottom);
     this._deathText?.setScale(s).setPosition(x + width / 2, y + height / 2);
     this._hudBlood?.setViewRect(view.world, s);
     this._hudMinimap?.setViewRect(view.world, s, view.fov.horizontal);

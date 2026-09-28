@@ -180,6 +180,8 @@ Demo controls, for checking changes by hand:
 - Minimap: **M** show/hide, **1**–**4** toggle the map, player, enemies and pickups layers, **[** / **]** zoom out and in, **V** fog of war, **X** automap.
 - **P** switches enemies off and on: blobs freeze in place and do no damage, spawners stay idle, and no new ones spawn (pickups still do). The kills line shows `[enemies off]` while it is active.
 
+The special keys are also listed on screen, in the bottom-left corner, from `CONTROLS_HELP` in `src/phaser-game.ts`. When you bind a new toggle, add it there too.
+
 ## Important gotchas
 
 - `build.js` bundles `src/phaser-game.ts` to `dist/game.js`; `index.html` loads that bundle directly.
