@@ -63,8 +63,8 @@ export interface HudMinimapOptions {
 // Sizes are pixels at the reference view height; setViewRect() multiplies them by the HUD scale.
 const DIAMETER = 192;
 /** Inset from the view's right edge, matching the inset of the HUD's left column. */
-const MARGIN_RIGHT = 32;
-const MARGIN_TOP = 24;
+const MARGIN_RIGHT = 16;
+const MARGIN_TOP = 16;
 const RING_WIDTH = 3;
 const WALL_WIDTH = 2;
 const ARROW_SIZE = 14;
