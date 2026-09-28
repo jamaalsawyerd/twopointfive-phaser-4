@@ -578,7 +578,7 @@ export class MainScene extends Phaser.Scene {
     // the weapon does, keeps the HUD the same size on screen when a window narrower than 16:9 makes
     // Scale.EXPAND grow the canvas height instead.
     const s = height / HEIGHT;
-    const left = x + 32 * s;
+    const left = x + 16 * s;
     const row = (i: number): number => y + (24 + 40 * i) * s;
 
     // Kills, health, then grenades down the left edge; icons in a column with their values beside them.
