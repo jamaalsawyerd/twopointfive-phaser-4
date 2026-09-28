@@ -2,11 +2,18 @@
 /**
  * Blob enemy: spawner (idle/spawn anim), blob (chases player, damage on touch), and gib particles.
  * Spawner creates EntityEnemyBlob via factory; blob calls _scene.incrementKillCount() on death. MainScene passes scene and images in spawnBlob().
+ * Both freeze while _scene.enemiesActive is false (the demo's P key): blobs stand still and do no damage, spawners stay idle.
  */
 import TPFEntity from '~/twopointfive/entity.ts';
 import TPFTimer from '~/twopointfive/timer.ts';
 import EntityParticle from './particle.ts';
 import type { ImageInfo, EntityContext } from '~/twopointfive/types.ts';
+
+/** What blobs and spawners need from the scene: the kill counter, and whether enemies are switched on. */
+interface EnemyScene {
+  incrementKillCount(): void;
+  enemiesActive: boolean;
+}
 
 class EntityEnemyBlobSpawner extends TPFEntity {
   angle: number;
@@ -16,7 +23,7 @@ class EntityEnemyBlobSpawner extends TPFEntity {
   _blobGibImage: ImageInfo | null;
   _blobGibSound: { play(): void } | null;
   _player: TPFEntity | null;
-  _scene: { incrementKillCount(): void } | null;
+  _scene: EnemyScene | null;
   EntityEnemyBlob:
     | ((x: number, y: number, settings: Record<string, unknown>, context: EntityContext) => TPFEntity)
     | null;
@@ -33,7 +40,7 @@ class EntityEnemyBlobSpawner extends TPFEntity {
     this._blobGibImage = (settings && (settings.blobGibImage as ImageInfo)) || null;
     this._blobGibSound = (settings && (settings.blobGibSound as { play(): void })) || null;
     this._player = (settings && (settings.player as TPFEntity)) || null;
-    this._scene = (settings && (settings.scene as { incrementKillCount(): void })) || null;
+    this._scene = (settings && (settings.scene as EnemyScene)) || null;
     this.EntityEnemyBlob = (settings && (settings.EntityEnemyBlob as typeof this.EntityEnemyBlob)) || null;
   }
 
@@ -60,10 +67,20 @@ class EntityEnemyBlobSpawner extends TPFEntity {
       return;
     }
 
+    // Enemies switched off: stay idle. A spawn in progress starts over later, because animations run on the
+    // scene clock and a paused one would otherwise finish the moment enemies came back.
+    if (this._scene && !this._scene.enemiesActive) {
+      this.currentAnim = this.anims.idle;
+      this.updateQuad();
+      return;
+    }
+
     if (this.currentAnim === this.anims.idle) {
       if (this._manhattanDistanceTo(player) < 512) {
         this.currentAnim = this.anims.spawn.rewind();
       } else {
+        // Idle and out of range: skip the physics step, but keep the billboard turned to the camera.
+        this.updateQuad();
         return;
       }
     }
@@ -108,7 +125,7 @@ class EntityEnemyBlob extends TPFEntity {
   _blobGibImage: ImageInfo | null;
   _blobGibSound: { play(): void } | null;
   _player: TPFEntity | null;
-  _scene: { incrementKillCount(): void } | null;
+  _scene: EnemyScene | null;
   EntityEnemyBlobGib:
     | ((x: number, y: number, settings: Record<string, unknown>, context: EntityContext) => TPFEntity)
     | null;
@@ -136,7 +153,7 @@ class EntityEnemyBlob extends TPFEntity {
     this._blobGibImage = (settings && (settings.blobGibImage as ImageInfo)) || null;
     this._blobGibSound = (settings && (settings.blobGibSound as { play(): void })) || null;
     this._player = (settings && (settings.player as TPFEntity)) || null;
-    this._scene = (settings && (settings.scene as { incrementKillCount(): void })) || null;
+    this._scene = (settings && (settings.scene as EnemyScene)) || null;
     this.EntityEnemyBlobGib = (settings && (settings.EntityEnemyBlobGib as typeof this.EntityEnemyBlobGib)) || null;
   }
 
@@ -150,6 +167,14 @@ class EntityEnemyBlob extends TPFEntity {
   }
 
   update(): void {
+    // Enemies switched off: stand still, but keep animating and facing the camera.
+    if (this._scene && !this._scene.enemiesActive) {
+      this.vel.x = 0;
+      this.vel.y = 0;
+      super.update();
+      return;
+    }
+
     const player = this._player;
     if (!player || player._killed) {
       this.vel.x = -this.vel.x;
@@ -192,6 +217,8 @@ class EntityEnemyBlob extends TPFEntity {
   }
 
   check(other: TPFEntity): void {
+    // Frozen blobs are harmless. They still block the player, since collision is resolved separately.
+    if (this._scene && !this._scene.enemiesActive) return;
     if (this.hurtTimer.delta() < 0) return;
 
     this.hurtTimer.set(1);

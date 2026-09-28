@@ -17,6 +17,8 @@ import EntityVoid from '~/game/tpf/entity-void.ts';
 import EntityPlayer from '~/game/tpf/entity-player.ts';
 import EntityGrenadePickup from '~/game/tpf/grenade-pickup.ts';
 import { HudBlood } from '~/game/tpf/hud-blood.ts';
+import { HudMinimap } from '~/game/tpf/hud-minimap.ts';
+import type { MinimapLayer, MinimapMarkerStyle } from '~/game/tpf/hud-minimap.ts';
 import { WAVY_FILTER_NODE, FilterWavyRenderNode, WavyFilterController } from '~/game/filters/wavy-filter.ts';
 import WebFontFile from '~/game/util/web-font-file.ts';
 import type TPFEntity from '~/twopointfive/entity.ts';
@@ -33,6 +35,23 @@ const RESOLUTION_STEPS: { label: string; view: TPFViewConfig }[] = [
   { label: '480p', view: { resolution: 480, scale: null, filter: 'nearest' } },
   { label: '240p', view: { resolution: 240, scale: null, filter: 'nearest' } },
   { label: '2x SSAA', view: { resolution: null, scale: 2, filter: 'linear' } },
+];
+
+/** Minimap markers per entity kind, picked by the classify callback in create(). Blobs are blue in the world too. */
+const MINIMAP_STYLES = {
+  blob: { layer: 'enemies', shape: 'dot', color: 0x6fc3ff },
+  spawner: { layer: 'enemies', shape: 'ring', color: 0x6fc3ff },
+  // Pickups stay put, so under fog of war they stay on the map once seen, until collected.
+  health: { layer: 'pickups', icon: 'health', remember: true },
+  ammo: { layer: 'pickups', icon: 'grenade-pickup', remember: true },
+} satisfies Record<string, MinimapMarkerStyle>;
+
+/** Minimap layers toggled by the number keys, in key order. */
+const MINIMAP_LAYER_KEYS: { key: string; layer: MinimapLayer }[] = [
+  { key: 'ONE', layer: 'map' },
+  { key: 'TWO', layer: 'player' },
+  { key: 'THREE', layer: 'enemies' },
+  { key: 'FOUR', layer: 'pickups' },
 ];
 
 /** Single scene: loads level into tpf, creates player and weapon, HUD, pointer lock, and TpfExtern. */
@@ -66,11 +85,14 @@ export class MainScene extends Phaser.Scene {
   _hudAmmoText: Phaser.GameObjects.Text | null;
   _hudKillsText: Phaser.GameObjects.Text | null;
   _hudBlood: HudBlood | null;
+  _hudMinimap: HudMinimap | null;
   _wavyFilter: WavyFilterController | null;
   _wavyWeaponFilter: WavyFilterController | null;
   _gShaderOn: boolean;
   _pulseUniforms: { time: number };
   _resolutionStep: number;
+  /** False while the P key has enemies switched off. Blobs and spawners read it through their injected scene. */
+  enemiesActive: boolean;
 
   constructor() {
     super({ key: 'Main' });
@@ -101,11 +123,13 @@ export class MainScene extends Phaser.Scene {
     this._hudAmmoText = null;
     this._hudKillsText = null;
     this._hudBlood = null;
+    this._hudMinimap = null;
     this._wavyFilter = null;
     this._wavyWeaponFilter = null;
     this._gShaderOn = false;
     this._pulseUniforms = { time: 0 };
     this._resolutionStep = 0;
+    this.enemiesActive = true;
   }
 
   preload(): void {
@@ -331,6 +355,31 @@ export class MainScene extends Phaser.Scene {
       viewY: view.world.y,
     });
 
+    // The minimap reads the level's walls once here, so it is built after loadLevel(). It sizes and
+    // anchors itself in layoutHud(), like the rest of the HUD.
+    const gameState = tpf.getGameState();
+    const camera = tpf.getCamera();
+    this._hudMinimap =
+      gameState && camera
+        ? new HudMinimap(this, {
+            gameState,
+            camera,
+            // The world is fogged out beyond fogFar, so the view cone stops there too.
+            visibleRange: tpf.getRenderer()?.fog?.far ?? Infinity,
+            // The demo starts with both on; V and X switch them off.
+            fogOfWar: true,
+            automap: true,
+            textStyle: hudStyle,
+            classify: (entity) => {
+              if (entity instanceof EntityEnemyBlob) return MINIMAP_STYLES.blob;
+              if (entity instanceof EntityEnemyBlobSpawner) return MINIMAP_STYLES.spawner;
+              if (entity instanceof EntityHealthPickup) return MINIMAP_STYLES.health;
+              if (entity instanceof EntityGrenadePickup) return MINIMAP_STYLES.ammo;
+              return null;
+            },
+          })
+        : null;
+
     const deathStyle: Phaser.Types.GameObjects.Text.TextStyle = {
       fontFamily: '"Fredoka One", Arial, sans-serif',
       fontSize: '48px',
@@ -441,6 +490,45 @@ export class MainScene extends Phaser.Scene {
         }
       }
     });
+
+    // Minimap: M shows or hides it, 1-4 toggle its layers (map, player, enemies, pickups), [ and ] zoom out
+    // and in, V toggles fog of war, and X the Doom-style automap that only shows walls you have looked at.
+    this.input.keyboard?.on('keydown-M', (event: KeyboardEvent) => {
+      if (event.repeat) return;
+      this._hudMinimap?.toggleVisible();
+    });
+    for (const { key, layer } of MINIMAP_LAYER_KEYS) {
+      this.input.keyboard?.on(`keydown-${key}`, (event: KeyboardEvent) => {
+        if (event.repeat) return;
+        this._hudMinimap?.toggleLayer(layer);
+      });
+    }
+    this.input.keyboard?.on('keydown-OPEN_BRACKET', (event: KeyboardEvent) => {
+      if (event.repeat) return;
+      this._hudMinimap?.zoomOut();
+    });
+    this.input.keyboard?.on('keydown-CLOSED_BRACKET', (event: KeyboardEvent) => {
+      if (event.repeat) return;
+      this._hudMinimap?.zoomIn();
+    });
+    this.input.keyboard?.on('keydown-V', (event: KeyboardEvent) => {
+      if (event.repeat) return;
+      this._hudMinimap?.toggleFogOfWar();
+    });
+    this.input.keyboard?.on('keydown-X', (event: KeyboardEvent) => {
+      if (event.repeat) return;
+      this._hudMinimap?.toggleAutomap();
+    });
+
+    // Press P to switch enemies off and on: blobs freeze in place and do no damage, spawners stay idle,
+    // and no new ones spawn. Pickups keep coming. Handy for exploring, or for testing the fog of war
+    // against enemies that hold still.
+    this.enemiesActive = true;
+    this.input.keyboard?.on('keydown-P', (event: KeyboardEvent) => {
+      if (event.repeat) return;
+      this.enemiesActive = !this.enemiesActive;
+      this.updateKillsText();
+    });
   }
 
   /**
@@ -466,6 +554,7 @@ export class MainScene extends Phaser.Scene {
     this._hudAmmoText?.setScale(s).setPosition(left + 40 * s, row(2));
     this._deathText?.setScale(s).setPosition(x + width / 2, y + height / 2);
     this._hudBlood?.setViewRect(view.world, s);
+    this._hudMinimap?.setViewRect(view.world, s, view.fov.horizontal);
     this._player?.currentWeapon?.setHudRect(view.world);
   }
 
@@ -523,9 +612,12 @@ export class MainScene extends Phaser.Scene {
     this.updateKillsText();
   }
 
-  /** Kill count plus the current internal-resolution step, so both writers share one format. */
+  /** Kill count plus a label for each demo toggle away from its default, so every writer shares one format. */
   updateKillsText(): void {
-    const suffix = this._resolutionStep === 0 ? '' : `  [${RESOLUTION_STEPS[this._resolutionStep].label}]`;
+    const labels: string[] = [];
+    if (this._resolutionStep !== 0) labels.push(RESOLUTION_STEPS[this._resolutionStep].label);
+    if (!this.enemiesActive) labels.push('enemies off');
+    const suffix = labels.map((label) => `  [${label}]`).join('');
     if (this._hudKillsText) this._hudKillsText.setText(`Kills: ${String(this._killCount)}${suffix}`);
   }
 
@@ -545,7 +637,9 @@ export class MainScene extends Phaser.Scene {
 
   checkSpawn(dt: number): void {
     if (!this._dead && !this._deathAnimActive) {
-      if (this._floorMap && this._player) {
+      // While enemies are switched off the blob timer holds rather than runs down, so switching them back on
+      // does not release a burst of spawns.
+      if (this.enemiesActive && this._floorMap && this._player) {
         this._blobSpawnTimer -= dt;
         if (this._blobSpawnTimer <= 0) {
           this.spawnBlob();
@@ -683,9 +777,10 @@ const config: Phaser.Types.Core.GameConfig = {
   backgroundColor: '#000',
   scale: {
     // EXPAND pins one axis to the width/height above and grows the other to fill the parent, so the
-    // internal resolution stays bounded (480 tall here) while the aspect ratio follows the window.
-    // The engine picks the new size up through the plugin's `viewchange` event.
-    //   Phaser.Scale.FIT    - fixed 640x480 buffer, letterboxed by CSS (the previous behaviour)
+    // internal resolution stays bounded (720 tall in a window wider than 16:9, 1280 wide in a narrower
+    // one) while the aspect ratio follows the window. The engine picks the new size up through the
+    // plugin's `viewchange` event.
+    //   Phaser.Scale.FIT    - fixed WIDTH x HEIGHT buffer, letterboxed by CSS (the previous behaviour)
     //   Phaser.Scale.RESIZE - buffer matches the parent exactly; native sizing, unbounded fill cost
     // Neither EXPAND nor RESIZE accounts for devicePixelRatio: the buffer is sized in CSS pixels, so
     // a HiDPI display upscales. For native crispness use Scale.NONE with your own resize listener

@@ -82,10 +82,26 @@ export interface TraceResult {
   tile: Vec2;
 }
 
+/** A side of a tile, named as in WallMap: `left` is the side facing -x, `top` the side facing -y. */
+export type TileFace = 'top' | 'bottom' | 'left' | 'right';
+
+/** Result of CollisionMap.raycast(): the first solid tile a ray entered. */
+export interface RaycastHit {
+  /** Tile coordinates of the solid tile. */
+  tileX: number;
+  tileY: number;
+  /** Distance along the ray, in world units, to the point where it entered the tile. */
+  distance: number;
+  /** The side of the tile the ray entered through, i.e. the wall face it hit. */
+  face: TileFace;
+}
+
 /** Collision-map-like interface (duck type for staticNoCollision) */
 export interface CollisionMapLike {
   tilesize: number;
   trace(x: number, y: number, vx: number, vy: number, w: number, h: number): TraceResult;
+  raycast(x: number, y: number, dirX: number, dirY: number, maxDistance: number): RaycastHit | null;
+  lineOfSight(x0: number, y0: number, x1: number, y1: number): boolean;
 }
 
 /** Context passed to entities */

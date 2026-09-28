@@ -30,7 +30,7 @@ Notes:
 ## Project structure
 
 - `src/twopointfive/` — engine/plugin code: renderer, cameras, world maps, collision, entity base class, timer, utilities, and public exports.
-- `src/game/` — Phaser demo game objects and gameplay entities.
+- `src/game/` — Phaser demo game objects and gameplay entities, including the HUD minimap (`src/game/tpf/hud-minimap.ts`).
 - `src/phaser-game.ts` — Phaser scene bootstrap, asset loading, plugin setup, HUD, input, and spawn logic.
 - `media/` — shared assets used by the demo.
 - `impact-version/` — original ImpactJS demo, engine copy, and Weltmeister editor files.
@@ -47,8 +47,8 @@ Notes:
 1. `src/phaser-game.ts` registers `TwoPointFivePlugin` as a global Phaser plugin.
 2. The scene uses `scene.tpf` (scene plugin) to create the engine renderer, camera, and game state.
 3. `MainScene.preload()` loads textures, audio, JSON level data, and web fonts.
-4. `MainScene.create()` wires tilesets, light-map pixels, entity classes, HUD objects, pointer lock, and the `Extern` object that draws the 2.5D world inside the Phaser scene. The HUD (weapon image, icons, text) is entirely native Phaser GameObjects — there is no engine-side HUD/ortho pass.
-5. `MainScene.update()` forwards delta time to `tpf.update(delta)` and handles spawn timers.
+4. `MainScene.create()` wires tilesets, light-map pixels, entity classes, HUD objects, pointer lock, and the `Extern` object that draws the 2.5D world inside the Phaser scene. The HUD (weapon image, icons, text, minimap) is entirely native Phaser GameObjects — there is no engine-side HUD/ortho pass.
+5. `MainScene.update()` hands mouse input to the player and runs the spawn timers. Entity simulation runs after it, in the plugin's own listener on the scene's `postupdate` event, which calls `tpf.update(delta)`.
 6. `GameState.loadLevel()` builds maps, collision, lighting, culled sectors, and entities from Impact-style level JSON.
 7. Entities update themselves through the shared `EntityContext` and render through the engine renderer.
 
@@ -56,6 +56,7 @@ Notes:
 
 - `src/twopointfive/entity.ts` is the base physics/rendering entity. It handles velocity, gravity, collision trace, animation updates, and light/sector updates. `setMaterial(key, uniforms)` / `clearMaterial()` select a custom shader (material) for the entity's billboard.
 - `src/twopointfive/game.ts` owns the level, entity registry, collision map, light map, and pairwise entity collision checks.
+- `src/twopointfive/collision-map.ts` is the tile collision grid (`1` = solid). `trace()` moves a box and slides along whatever it hits, for entity movement. `raycast()` walks a ray one tile at a time (a grid DDA) and returns the first solid tile, its distance, and the face the ray entered through, named like `WallMap`'s faces (`top`/`bottom`/`left`/`right`); `lineOfSight()` is built on it. The tile holding the start point is not tested, and a ray through the exact corner between two diagonal walls is blocked. `staticNoCollision` implements all three as never-hit.
 - `src/twopointfive/world/map.ts` and `wall-map.ts` build tile meshes from level layers.
 - `src/twopointfive/world/light-map.ts` converts light-layer data plus image pixels into per-tile colors.
 - `src/twopointfive/renderer/renderer.ts` is the batching facade: camera/fog state, texture binding, draw stats, and quad/mesh submission. All GL resources live behind Phaser wrappers.
@@ -126,7 +127,7 @@ Observed level data is Impact/Weltmeister-shaped JSON:
 ### View, aspect ratio, and internal resolution
 
 - The canvas drawing buffer is the game config's `width`/`height`: Phaser 4's `ScaleManager` sets `canvas.width = baseSize.width`, and `zoom` only affects CSS. So those numbers *are* the internal render resolution and their ratio is the aspect.
-- The demo runs `Scale.EXPAND`: one axis stays at the config size (480 tall) and the other grows to the parent, so the aspect follows the window while fill cost stays bounded. `index.html` gives `#game` real dimensions (`position: fixed; inset: 0`) because EXPAND/RESIZE derive the canvas from the parent's bounding box — a bare div in a centring flex container collapses or feeds back against its own canvas.
+- The demo runs `Scale.EXPAND`: one axis stays at the config size (720 tall in a window wider than 16:9, 1280 wide in a narrower one) and the other grows to the parent, so the aspect follows the window while fill cost stays bounded. `index.html` gives `#game` real dimensions (`position: fixed; inset: 0`) because EXPAND/RESIZE derive the canvas from the parent's bounding box — a bare div in a centring flex container collapses or feeds back against its own canvas.
 - Two non-obvious ScaleManager behaviours, both verified against 4.2.1: under EXPAND/RESIZE `game.scale.resize()` is overwritten by the next `updateScale` (resize the parent instead), and `refresh()` uses the parent size sampled at the end of the *previous* refresh (call `getParentBounds()` first when driving a resize by hand). No mode applies `devicePixelRatio`; that needs `Scale.NONE` plus a manual `resize(css * dpr)`.
 - HUD layout lives in `MainScene.layoutHud(view)` and runs from `viewchange`, so resizes and `setView` calls share one path. The plugin clears `viewchange` listeners on scene shutdown (they capture Game Objects the shutdown destroys), so subscribe from `create()`.
 - `view.aspect` set makes `view.world` a centred sub-rectangle of the canvas (pillar/letterbox); the bars are simply canvas the world never touches, so they show Phaser's `backgroundColor`. `view.internal` is the resolution the world renders at, which `resolution`/`scale` decouple from `view.world`. The three size fields are not interchangeable — read the one that matches your intent, and `view.offscreen` says whether internal differs from world.
@@ -139,6 +140,22 @@ Observed level data is Impact/Weltmeister-shaped JSON:
 - Weapon subclasses that change `offset` or tile size after `super()` must call `updateHudAnchor()` rather than recomputing `pos` by hand; the arithmetic includes the `hudX`/`hudY` view origin and skipping it mis-places the weapon when the view is inset.
 - Horizontal FOV is `2·atan(tan(fovV/2)·aspect)`, not `fov * aspect`. The old approximation over-estimated above aspect 1.0 (harmless over-draw) but under-estimated below it, culling sectors that were still on screen. Sector culling reads it via `context.horizontalFov()`.
 - `_renderWorld()` holds the shared world render body; `renderToGL()` (the Extern path) and `draw()` (the standalone path) both call it, so changes land in both. `renderToGL` takes the `DrawingContext` size because a filter that requests padding renders into a larger context.
+
+## HUD minimap
+
+`HudMinimap` (`src/game/tpf/hud-minimap.ts`) is the circular minimap in the top-right corner of the world view. It turns with the camera so the way the player faces is always up. `MainScene` creates it after `loadLevel()`, because it reads the level's walls once, and positions it from `layoutHud()` like the rest of the HUD.
+
+- **Structure.** A Container holds, in draw order: the background, the wall-line map, the fog shade, the view cone, pooled marker `Image`s, and the player arrow. An internal `Mask` filter with a disc texture clips it to a circle; masks are filters in Phaser 4, so this needs no stencil buffer (the game disables stencil). A second, unclipped Container holds the ring, the compass N and the rim pips.
+- **`setSize` is load-bearing.** Phaser sizes a Container's filter framebuffer from its width and height; with none set it focuses the filter on the whole camera, and the disc mask stretches across the screen.
+- **Scale by resizing, not `setScale`.** The filter framebuffer is allocated at the Container's unscaled size, so scaling the Container would stretch a small render and blur it. Instead, `setViewRect(rect, scale, horizontalFovDeg)` redraws every canvas texture at on-screen size when the scale changes; a plain move only repositions.
+- **It follows the camera, not the player entity:** position from `camera.position[0]`/`[2]`, yaw from `camera.rotation[1]`, the smoothed yaw the 3D view renders with. Rotating the map image by that yaw turns the player's forward vector, `(-sin yaw, -cos yaw)`, to straight up. The wall map is one quad; per frame only its origin and rotation change.
+- **It updates on the scene's `PRE_RENDER` event**, which fires after the plugin's `postupdate` entity pass, so it never trails the 3D view by a frame. Phaser does not remove `PRE_RENDER` listeners on shutdown, so the minimap unsubscribes itself on `SHUTDOWN`. Any other per-frame listener on `scene.events` needs the same, or a restart leaves the old one running against destroyed objects.
+- **Layers** (`map`, `player`, `enemies`, `pickups`) toggle independently. A `classify(entity)` callback supplied by `MainScene` returns each entity's marker style (`layer`, `icon` or `shape`, `color`, `remember`), so the class imports no game entities.
+- **Fog of war.** An entity is in sight when it is within `visibleRange` (the level's fog far distance), inside the horizontal FOV widened by its own half-width, and `lineOfSight()` reaches its centre. Enemies show only while in sight; styles with `remember: true` (the pickups) stay on the map once seen, dimmed, until collected. The map outside the view cone is darkened by a shade texture with a cone-shaped hole, which is static because the cone always points up.
+- **Automap.** Whenever the camera moves or turns, a fan of `raycast()`s across the FOV (0.5° apart, out to `visibleRange`) records every wall face it hits. With the automap on only recorded faces are drawn, added to the map canvas as they are found. Sightings and walls are recorded even while fog or the automap is off, or the minimap is hidden, so switching either on shows real history.
+- **Defaults.** The class defaults to everything visible with fog and the automap off; the demo passes `fogOfWar: true` and `automap: true`.
+- **Canvas textures, not DynamicTextures.** Phaser re-uploads canvas textures after WebGL context loss, while DynamicTexture contents are lost. Every `CanvasTexture.refresh()` resets filtering to the game's default, nearest (the game runs `antialias: false`), so the minimap sets `LINEAR` again after each upload; otherwise the rotating map shimmers. Pickup icons are separate copies, because the 3D billboards sample the original textures and must stay nearest-filtered.
+- Texture keys (`__minimap_*`) are shared and outlive scene restarts, so only one minimap can exist at a time.
 
 ## Naming and style patterns
 
@@ -157,6 +174,12 @@ There is no dedicated automated test suite in `package.json`. The normal verific
 3. `npm run format:check`
 4. Launch with `npm start` and verify the demo in the browser
 
+Demo controls, for checking changes by hand:
+- **W**/**S** move, **A**/**D** strafe, **←**/**→** turn; click the canvas for mouse look, then click or press **Space** to fire.
+- **G** entity material, **F** wavy world filter, **R** cycles the internal resolution.
+- Minimap: **M** show/hide, **1**–**4** toggle the map, player, enemies and pickups layers, **[** / **]** zoom out and in, **V** fog of war, **X** automap.
+- **P** switches enemies off and on: blobs freeze in place and do no damage, spawners stay idle, and no new ones spawn (pickups still do). The kills line shows `[enemies off]` while it is active.
+
 ## Important gotchas
 
 - `build.js` bundles `src/phaser-game.ts` to `dist/game.js`; `index.html` loads that bundle directly.
@@ -165,6 +188,8 @@ There is no dedicated automated test suite in `package.json`. The normal verific
 - `src/phaser-game.ts` expects WebGL and Phaser's `Extern` path for rendering the 2.5D world.
 - Level loading depends on named layers matching the engine's expected names; if a tileset is missing, the layer is skipped.
 - The player, weapon, and enemy systems use callback-heavy settings objects to inject images, sounds, scene hooks, and factories at spawn time.
+- Blobs and spawners read `MainScene.enemiesActive` (the P toggle) through the `scene` setting that `spawnBlob()` injects, so an enemy spawned without that setting ignores the toggle.
+- Entities are billboards: `updateQuad()` is what turns them to face the camera. An entity that skips its update (like an idle spawner out of activation range) must still call `updateQuad()`, or it stops facing the camera and can show edge-on.
 - A separate ImpactJS demo and Weltmeister editor exist under `impact-version/`; do not assume changes to the Phaser path automatically apply there.
 - `src/twopointfive/world/map.ts` and `wall-map.ts` contain special handling for tile seams and wall-face removal; changes there can affect rendering artifacts immediately.
 
