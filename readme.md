@@ -20,9 +20,10 @@ This repository includes a **Phaser 4**-compatible plugin (converted from the or
 ### Quick start
 
 1. Install dependencies: `npm install`
-2. Build: `npm run build`
-3. Serve: `npm start`
-4. Open the Phaser demo at http://localhost:8080/index.html
+2. Serve: `npm start`. It builds first, then keeps watching: saving a source file rebuilds and reloads the page, and type errors show in the terminal.
+3. Open the Phaser demo at http://localhost:8080/index.html
+
+For a one-off build without serving, run `npm run build` (writes `dist/game.js`).
 
 The ImpactJS version of the game demo is served from http://localhost:8080/impact-index.html
 The Weltmeister editor is served from http://localhost:8080/weltmeister.html

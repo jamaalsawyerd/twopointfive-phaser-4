@@ -5,7 +5,7 @@
   "main": "src/twopointfive/two-point-five-plugin.ts",
   "scripts": {
     "build": "node build.js",
-    "start": "node build.js && node dev-server.js",
+    "start": "node --watch --watch-preserve-output dev-server.js --live --typecheck",
     "lint": "eslint src/",
     "lint:fix": "eslint --fix src/",
     "format": "eslint --fix src/ && prettier --write 'src/**/*.ts'",

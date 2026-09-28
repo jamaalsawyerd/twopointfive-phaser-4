@@ -13,6 +13,8 @@ class WebFontFile extends Phaser.Loader.File {
   constructor(loader: Phaser.Loader.LoaderPlugin, fontNames: string | string[], service?: string) {
     super(loader, {
       type: 'webfont',
+      // webfontloader adds the fonts to the document, so there is no Phaser cache to store them in.
+      cache: false,
       key: fontNames.toString(),
     });
     this.fontNames = Array.isArray(fontNames) ? fontNames : [fontNames];

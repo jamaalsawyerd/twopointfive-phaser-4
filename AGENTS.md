@@ -22,7 +22,8 @@ npm run format:check
 
 Notes:
 - `npm run build` executes `node build.js` and writes the bundled demo to `dist/game.js`.
-- `npm start` rebuilds first, then runs `dev-server.js` on port `8080`.
+- `npm start` runs `dev-server.js --live --typecheck` under `node --watch` on port `8080`. esbuild's watch mode rebuilds `dist/game.js` whenever a bundled file changes and open Phaser demo tabs reload; `index.html` and `media/` changes reload them too. A failed build keeps the last good bundle and logs the error in the terminal and the tab's console.
+- `--typecheck` runs `tsc --watch` in the same terminal, since esbuild only strips types. `node --watch` restarts the server when `dev-server.js` or `build.js` change, and open tabs reload once it is back. Plain `node dev-server.js` is still a static server with no build.
 - `npm run lint` only targets `src/`.
 - `npm run format` runs ESLint fixers on `src/` and Prettier on `src/**/*.ts`.
 
@@ -36,8 +37,8 @@ Notes:
 - `index.html` — Phaser demo entry point.
 - `impact-index.html` — Impact demo entry point.
 - `weltmeister.html` — Weltmeister editor entry point.
-- `dev-server.js` — local static server plus Weltmeister browse/glob/save API replacements.
-- `build.js` — esbuild bundle script.
+- `dev-server.js` — local static server plus Weltmeister browse/glob/save API replacements, live reload (`--live`), and type checking (`--typecheck`).
+- `build.js` — esbuild bundle script; exports `buildOptions`, which the dev server's live mode reuses.
 
 ## Architecture and control flow
 
@@ -159,7 +160,8 @@ There is no dedicated automated test suite in `package.json`. The normal verific
 ## Important gotchas
 
 - `build.js` bundles `src/phaser-game.ts` to `dist/game.js`; `index.html` loads that bundle directly.
-- `npm start` rebuilds before serving and uses `dev-server.js` instead of a generic static server so Weltmeister can browse entity/level files and save `.js` levels.
+- `npm start` uses `dev-server.js` instead of a generic static server so Weltmeister can browse entity/level files and save `.js` levels.
+- The live-reload script is injected into `index.html` as it is served (the file on disk has none) and never into `weltmeister.html`, where a reload would discard unsaved level edits; the Impact demo does not live-reload either. Pages opt in through `liveReloadPages` in `dev-server.js`.
 - `src/phaser-game.ts` expects WebGL and Phaser's `Extern` path for rendering the 2.5D world.
 - Level loading depends on named layers matching the engine's expected names; if a tileset is missing, the layer is skipped.
 - The player, weapon, and enemy systems use callback-heavy settings objects to inject images, sounds, scene hooks, and factories at spawn time.
