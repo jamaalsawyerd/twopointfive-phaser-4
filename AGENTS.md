@@ -30,7 +30,7 @@ Notes:
 ## Project structure
 
 - `src/twopointfive/` — engine/plugin code: renderer, cameras, world maps, collision, entity base class, timer, utilities, and public exports.
-- `src/game/` — Phaser demo game objects and gameplay entities, including the HUD minimap (`src/game/tpf/hud-minimap.ts`).
+- `src/game/` — Phaser demo game objects and gameplay entities, including the HUD minimap (`src/game/tpf/hud-minimap.ts`) and 8-direction billboards (`src/game/tpf/directional-sprite.ts`).
 - `src/phaser-game.ts` — Phaser scene bootstrap, asset loading, plugin setup, HUD, input, and spawn logic.
 - `media/` — shared assets used by the demo.
 - `impact-version/` — original ImpactJS demo, engine copy, and Weltmeister editor files.
@@ -157,6 +157,20 @@ Observed level data is Impact/Weltmeister-shaped JSON:
 - **Canvas textures, not DynamicTextures.** Phaser re-uploads canvas textures after WebGL context loss, while DynamicTexture contents are lost. Every `CanvasTexture.refresh()` resets filtering to the game's default, nearest (the game runs `antialias: false`), so the minimap sets `LINEAR` again after each upload; otherwise the rotating map shimmers. Pickup icons are separate copies, because the 3D billboards sample the original textures and must stay nearest-filtered.
 - Texture keys (`__minimap_*`) are shared and outlive scene restarts, so only one minimap can exist at a time.
 
+## Directional sprites
+
+`DirectionalSprite` (`src/game/tpf/directional-sprite.ts`) gives an entity's billboard up to 8 directions, Doom-style: it shows the sheet row for the side the camera sees. `EntityEnemyBlobDirectional` and `EntityEnemyBlobSpawnerDirectional` (`src/game/tpf/enemy-blob.ts`) use it with `media/blob-directions.png` and `media/blob-spawn-directions.png`, and `EntityGrenadeDirectional` (`src/game/tpf/grenade-launcher.ts`) with `media/grenade-directions.png`.
+
+- **Sheet layout.** Each row holds one direction and repeats the same frame layout. A `DirectionRows` map names the row for each direction: `front`, `frontRight`, `right`, `backRight`, `back`, `backLeft`, `left`, `frontLeft`, as the viewer sees the entity (`right` is its right-facing profile). Directions can be left out and the nearest declared one shows, so a 4-direction sheet declares just `front`, `right`, `back` and `left`. A map naming a row the sheet doesn't have leaves the animations alone and warns, once per message.
+- **`DEFAULT_DIRECTION_ROWS`** is the layout of all three sheets: front first, then turning to the viewer's right. Row 0 of each is the original one-angle art (`blob.png`, `blob-spawn.png`, `grenade.png`) and the other rows were rendered from a model fitted to it. The blob sheets are near-symmetric, so their rows 5–7 mirror rows 3–1 (each frame flipped in place), and both measure the front from the same face angle, so a spawner's last frame and its blob's first frame agree. The grenade's seam pattern isn't symmetric, so every row is rendered, each the ball turned a further 45°. Each entity's `directionRows` field holds its layout; a sheet laid out differently passes its own as a `directionRows` setting beside its image (`blobDirectionsImage` and `blobSpawnDirectionsImage` in `spawnBlob()`, `grenadeDirectionsImage` in the grenade factory in `create()`).
+- **Animations** are declared with one row's frame numbers (the blob's crawl uses 0–5, the spawner's animations 0–21). `Tile` reads frames row by row, so row *r* starts at frame `r × framesPerRow`.
+- **Picking the row** uses the entity's heading against the camera's *position*, not its yaw, so an entity at the edge of the screen shows the angle it is actually seen from. It switches only once the view is 5° past the halfway point between two directions, so an entity on the boundary doesn't flicker.
+- **Applying the row** swaps the current animation's frame list for that row's copy. The `Animation` and its timer stay the same, so the cycle neither restarts nor skips. It must run before `TPFEntity.updateQuad()` sets the tile, so each directional entity calls it from its `updateQuad()` override, which also covers paths that only call `updateQuad()` (like idle spawners). `TPFEntity.init()` sets the tile once before the entity has built its `DirectionalSprite`, so `init()` calls `updateQuad()` again at the end; without that, a new entity's first frame shows its front row.
+- **The heading has to move.** `EntityEnemyBlob` re-aims at the player every frame and the camera sits at the player's centre, so it would only ever show row 0. `EntityEnemyBlobDirectional` overrides `steer()` to turn toward the player at `turnRate` (180°/s) instead. At the blob's 80 px/s, below about 140°/s its turning circle outgrows the player's 32 px box and a blob can circle without ever touching. New blobs start facing the player. Frozen blobs (P) keep their heading, so P and a walk round a blob is the quickest way to see all 8 rows.
+- **The spawner doesn't move**, so `startSpawn()` points it at the player when its animation starts and it keeps that heading: walking round it mid-spawn shows its sides. `blobSettings()` hands the heading to the blob it spawns as an `angle` setting, and a blob given one keeps it instead of aiming at the player, so the row doesn't jump at the hand-over. Both hooks are no-ops on `EntityEnemyBlobSpawner`. While idle the spawner is a featureless drip, the same in every row.
+- **The grenade faces backwards.** Its glowing side is its rear, so its heading is opposite its velocity: a grenade flying away from the camera, which is how you mostly see one, shows row 0, the original art, and the other rows show once it bounces sideways or back. At rest it keeps its last heading.
+- **One-angle mode.** While `MainScene.directionalSprites` is false (the **B** key) every directional entity shows its `front` row, and the blob steers like `EntityEnemyBlob`. `spawnBlob()` and the grenade factory always create the directional classes, so B switches every live blob, spawner and grenade at once rather than only new ones.
+
 ## Naming and style patterns
 
 - TypeScript uses `strict: true` and ES module imports with the `~/*` path alias mapping to `src/*`.
@@ -179,6 +193,7 @@ Demo controls, for checking changes by hand:
 - **G** entity material, **F** wavy world filter, **R** cycles the internal resolution.
 - Minimap: **M** show/hide, **1**–**4** toggle the map, player, enemies and pickups layers, **[** / **]** zoom out and in, **V** fog of war, **X** automap.
 - **P** switches enemies off and on: blobs freeze in place and do no damage, spawners stay idle, and no new ones spawn (pickups still do). The kills line shows `[enemies off]` while it is active.
+- **B** switches the 8-direction sprites (blobs, spawners, grenades) back to their original one angle, and blobs from turning to follow you back to snapping straight at you. Every one switches at once; the kills line shows `[1-angle sprites]` while it is off.
 
 The special keys are also listed on screen, in the bottom-left corner, from `CONTROLS_HELP` in `src/phaser-game.ts`. When you bind a new toggle, add it there too.
 
@@ -190,8 +205,8 @@ The special keys are also listed on screen, in the bottom-left corner, from `CON
 - `src/phaser-game.ts` expects WebGL and Phaser's `Extern` path for rendering the 2.5D world.
 - Level loading depends on named layers matching the engine's expected names; if a tileset is missing, the layer is skipped.
 - The player, weapon, and enemy systems use callback-heavy settings objects to inject images, sounds, scene hooks, and factories at spawn time.
-- Blobs and spawners read `MainScene.enemiesActive` (the P toggle) through the `scene` setting that `spawnBlob()` injects, so an enemy spawned without that setting ignores the toggle.
-- Entities are billboards: `updateQuad()` is what turns them to face the camera. An entity that skips its update (like an idle spawner out of activation range) must still call `updateQuad()`, or it stops facing the camera and can show edge-on.
+- Blobs and spawners read `MainScene.enemiesActive` (the P toggle) and, in their directional versions, `MainScene.directionalSprites` (the B toggle), through the `scene` setting that `spawnBlob()` injects; directional grenades read `directionalSprites` through the `scene` setting the grenade factory in `create()` adds. An entity spawned without that setting ignores the toggles; a directional one without it stays directional.
+- Entities are billboards: `updateQuad()` is what turns them to face the camera, and for directional entities picks the sheet row. An entity that skips its update (like an idle spawner out of activation range) must still call `updateQuad()`, or it stops facing the camera and can show edge-on.
 - A separate ImpactJS demo and Weltmeister editor exist under `impact-version/`; do not assume changes to the Phaser path automatically apply there.
 - `src/twopointfive/world/map.ts` and `wall-map.ts` contain special handling for tile seams and wall-face removal; changes there can affect rendering artifacts immediately.
 

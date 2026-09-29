@@ -8,10 +8,17 @@ import { TwoPointFivePlugin } from '~/twopointfive/two-point-five-plugin.ts';
 import {
   WeaponGrenadeLauncher,
   EntityGrenade,
+  EntityGrenadeDirectional,
   EntityGrenadeExplosion,
   EntityBlastRadius,
 } from '~/game/tpf/grenade-launcher.ts';
-import { EntityEnemyBlobSpawner, EntityEnemyBlob, EntityEnemyBlobGib } from '~/game/tpf/enemy-blob.ts';
+import {
+  EntityEnemyBlobSpawner,
+  EntityEnemyBlobSpawnerDirectional,
+  EntityEnemyBlob,
+  EntityEnemyBlobDirectional,
+  EntityEnemyBlobGib,
+} from '~/game/tpf/enemy-blob.ts';
 import EntityHealthPickup from '~/game/tpf/health-pickup.ts';
 import EntityVoid from '~/game/tpf/entity-void.ts';
 import EntityPlayer from '~/game/tpf/entity-player.ts';
@@ -69,6 +76,7 @@ const CONTROLS_HELP: { keys: string; action: string }[] = [
   { keys: 'V', action: 'fog of war' },
   { keys: 'X', action: 'automap' },
   { keys: 'P', action: 'enemies on/off' },
+  { keys: 'B', action: '8-way sprites' },
 ];
 
 /** Single scene: loads level into tpf, creates player and weapon, HUD, pointer lock, and TpfExtern. */
@@ -112,6 +120,11 @@ export class MainScene extends Phaser.Scene {
   _resolutionStep: number;
   /** False while the P key has enemies switched off. Blobs and spawners read it through their injected scene. */
   enemiesActive: boolean;
+  /**
+   * False while the B key has the 8-direction sprites (blobs, spawners, grenades) on their original one angle,
+   * and blobs on their original steering. Each reads it through its injected scene.
+   */
+  directionalSprites: boolean;
 
   constructor() {
     super({ key: 'Main' });
@@ -151,6 +164,7 @@ export class MainScene extends Phaser.Scene {
     this._pulseUniforms = { time: 0 };
     this._resolutionStep = 0;
     this.enemiesActive = true;
+    this.directionalSprites = true;
   }
 
   preload(): void {
@@ -162,13 +176,16 @@ export class MainScene extends Phaser.Scene {
 
     this.load.spritesheet('grenade-launcher', 'media/grenade-launcher.png', { frameWidth: 180, frameHeight: 134 });
     this.load.image('grenade', 'media/grenade.png');
+    this.load.image('grenade-directions', 'media/grenade-directions.png');
     this.load.image('explosion', 'media/explosion.png');
 
     this.load.image('grenade-pickup', 'media/grenade-pickup.png');
     this.load.image('health', 'media/health.png');
 
     this.load.image('blob-spawn', 'media/blob-spawn.png');
+    this.load.image('blob-spawn-directions', 'media/blob-spawn-directions.png');
     this.load.image('blob', 'media/blob.png');
+    this.load.image('blob-directions', 'media/blob-directions.png');
     this.load.image('blob-gib', 'media/blob-gib.png');
 
     this.load.image('health-icon', 'media/health-icon.png');
@@ -215,13 +232,16 @@ export class MainScene extends Phaser.Scene {
 
     this._weaponImages = {
       grenade: tpf.loadImage('grenade')!,
+      grenadeDirections: tpf.loadImage('grenade-directions')!,
       explosion: tpf.loadImage('explosion')!,
       grenadePickup: tpf.loadImage('grenade-pickup')!,
     };
 
     this._enemyImages = {
       blobSpawn: tpf.loadImage('blob-spawn')!,
+      blobSpawnDirections: tpf.loadImage('blob-spawn-directions')!,
       blob: tpf.loadImage('blob')!,
+      blobDirections: tpf.loadImage('blob-directions')!,
       blobGib: tpf.loadImage('blob-gib')!,
       health: tpf.loadImage('health')!,
     };
@@ -268,10 +288,13 @@ export class MainScene extends Phaser.Scene {
       settings.bounceSound = this._sounds.bounce;
       settings.explodeSound = this._sounds.explosion;
       settings.grenadeImage = this._weaponImages.grenade;
+      settings.grenadeDirectionsImage = this._weaponImages.grenadeDirections;
+      settings.scene = this;
       settings.explosionImage = this._weaponImages.explosion;
       settings.EntityGrenadeExplosion = explosionFactory;
       settings.EntityBlastRadius = EntityBlastRadius;
-      return new EntityGrenade(x, y, settings, context);
+      // Directional in both B modes: with B off it shows one angle, like EntityGrenade.
+      return new EntityGrenadeDirectional(x, y, settings, context);
     };
 
     const explosionFactory = (
@@ -564,6 +587,16 @@ export class MainScene extends Phaser.Scene {
       this.enemiesActive = !this.enemiesActive;
       this.updateKillsText();
     });
+
+    // Press B to switch between the 8-direction sprites and the original one-angle ones: blobs (which also go
+    // back from turning to follow you to snapping straight at you), spawners and grenades. Every one switches
+    // at once, including ones on screen.
+    this.directionalSprites = true;
+    this.input.keyboard?.on('keydown-B', (event: KeyboardEvent) => {
+      if (event.repeat) return;
+      this.directionalSprites = !this.directionalSprites;
+      this.updateKillsText();
+    });
   }
 
   /**
@@ -656,6 +689,7 @@ export class MainScene extends Phaser.Scene {
     const labels: string[] = [];
     if (this._resolutionStep !== 0) labels.push(RESOLUTION_STEPS[this._resolutionStep].label);
     if (!this.enemiesActive) labels.push('enemies off');
+    if (!this.directionalSprites) labels.push('1-angle sprites');
     const suffix = labels.map((label) => `  [${label}]`).join('');
     if (this._hudKillsText) this._hudKillsText.setText(`Kills: ${String(this._killCount)}${suffix}`);
   }
@@ -746,6 +780,7 @@ export class MainScene extends Phaser.Scene {
       ((x: number, y: number, settings: Record<string, unknown>, context: EntityContext) => {
         settings = settings || {};
         settings.blobSpawnImage = this._enemyImages.blobSpawn;
+        settings.blobSpawnDirectionsImage = this._enemyImages.blobSpawnDirections;
         settings.blobImage = this._enemyImages.blob;
         settings.blobGibImage = this._enemyImages.blobGib;
         settings.blobGibSound = this._sounds.blobGib;
@@ -759,6 +794,7 @@ export class MainScene extends Phaser.Scene {
         ) => {
           bSettings = bSettings || {};
           bSettings.blobImage = this._enemyImages.blob;
+          bSettings.blobDirectionsImage = this._enemyImages.blobDirections;
           bSettings.blobGibImage = this._enemyImages.blobGib;
           bSettings.blobGibSound = this._sounds.blobGib;
           bSettings.player = this._player;
@@ -773,9 +809,10 @@ export class MainScene extends Phaser.Scene {
             gSettings.blobGibImage = this._enemyImages.blobGib;
             return new EntityEnemyBlobGib(gx, gy, gSettings, gContext);
           };
-          return new EntityEnemyBlob(bx, by, bSettings, bContext);
+          // Directional in both B modes: with B off it shows one angle and steers like EntityEnemyBlob.
+          return new EntityEnemyBlobDirectional(bx, by, bSettings, bContext);
         };
-        return new EntityEnemyBlobSpawner(x, y, settings, context);
+        return new EntityEnemyBlobSpawnerDirectional(x, y, settings, context);
       }) as unknown as new (x: number, y: number, s: Record<string, unknown>, c: EntityContext) => TPFEntity,
       spawnPos.x,
       spawnPos.y,

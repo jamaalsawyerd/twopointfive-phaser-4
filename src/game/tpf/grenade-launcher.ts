@@ -1,12 +1,20 @@
 /**
  * Grenade launcher weapon and grenade/explosion/blast entities. Weapon spawns EntityGrenade on shoot();
  * grenade bounces, then spawns EntityGrenadeExplosion and EntityBlastRadius. MainScene wires factories and images in create().
+ * EntityGrenadeDirectional is the 8-direction grenade; it drops to one angle while _scene.directionalSprites is false (the B key).
  */
 import Weapon from './weapon.ts';
 import type { WeaponOpts } from './weapon.ts';
+import DirectionalSprite, { DEFAULT_DIRECTION_ROWS } from './directional-sprite.ts';
+import type { DirectionRows } from './directional-sprite.ts';
 import TPFEntity from '~/twopointfive/entity.ts';
 import { Tile } from '~/twopointfive/world/tile.ts';
 import type { ImageInfo, EntityContext, TraceResult } from '~/twopointfive/types.ts';
+
+/** What a directional grenade needs from the scene: whether sprites use their 8 directions. */
+interface SpriteScene {
+  directionalSprites: boolean;
+}
 
 export interface GrenadeLauncherOpts extends WeaponOpts {
   EntityGrenade?: new (
@@ -198,6 +206,48 @@ class EntityGrenade extends TPFEntity {
 }
 
 /**
+ * Grenade drawn from an 8-direction sheet (media/grenade-directions.png). The glowing side of the ball is
+ * its rear, so it faces opposite the way it flies: a grenade flying away shows row 0, the original art, and
+ * the other rows show once it bounces sideways or back. While the scene's directionalSprites is false it
+ * shows its front row, the one-angle sprite.
+ */
+class EntityGrenadeDirectional extends EntityGrenade {
+  /** Which sheet row holds each direction. A sheet laid out differently passes its own in settings, beside grenadeDirectionsImage. */
+  directionRows: DirectionRows;
+  _directions: DirectionalSprite | null;
+  _scene: SpriteScene | null;
+  /** The way the glowing side faces, in radians as TPFEntity.angleTo measures them: opposite the flight. */
+  _heading: number;
+
+  constructor(x: number, y: number, settings: Record<string, unknown> | null, context: Partial<EntityContext> | null) {
+    super(x, y, settings, context);
+    this.directionRows = DEFAULT_DIRECTION_ROWS;
+    this._directions = null;
+    this._scene = (settings && (settings.scene as SpriteScene)) || null;
+    this._heading = Math.atan2(-this.vel.y, -this.vel.x);
+    // Row 0 of the 8-direction sheet is the one-angle sprite, so it serves both modes. TPFEntity.init()
+    // builds the tile from animSheet.
+    const sheet = settings && (settings.grenadeDirectionsImage as ImageInfo);
+    if (sheet) this.animSheet = { image: sheet, width: 32, height: 32 };
+  }
+
+  init(x: number, y: number, settings: Record<string, unknown> | null): void {
+    // TPFEntity.init() copies settings onto the entity, so a directionRows setting is in place by now.
+    super.init(x, y, settings);
+    if (this.animSheet) this._directions = new DirectionalSprite(this, this.directionRows);
+    // TPFEntity.init() set the tile before there was a row to pick; set it again.
+    if (this._directions) this.updateQuad();
+  }
+
+  updateQuad(): void {
+    // Follow the flight; a grenade that has come to rest keeps its last heading.
+    if (Math.abs(this.vel.x) + Math.abs(this.vel.y) > 1) this._heading = Math.atan2(-this.vel.y, -this.vel.x);
+    this._directions?.update(this, this._heading, !this._scene || this._scene.directionalSprites);
+    super.updateQuad();
+  }
+}
+
+/**
  * EntityGrenadeExplosion - visual explosion particle.
  */
 class EntityGrenadeExplosion extends TPFEntity {
@@ -274,4 +324,4 @@ class EntityBlastRadius extends TPFEntity {
   }
 }
 
-export { WeaponGrenadeLauncher, EntityGrenade, EntityGrenadeExplosion, EntityBlastRadius };
+export { WeaponGrenadeLauncher, EntityGrenade, EntityGrenadeDirectional, EntityGrenadeExplosion, EntityBlastRadius };

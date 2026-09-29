@@ -1,11 +1,16 @@
 /**
- * Small helpers used across the engine: angle conversion, clamp, and prototype-based
+ * Small helpers used across the engine: angle conversion and wrapping, clamp, and prototype-based
  * inheritance (Impact-style). Extends Number.prototype with toRad().
  */
 const DEG_TO_RAD: number = Math.PI / 180;
 
 function toRad(deg: number): number {
   return deg * DEG_TO_RAD;
+}
+
+/** Wraps an angle in radians into [-PI, PI), e.g. to take the shorter way round between two headings. */
+function wrapAngle(rad: number): number {
+  return rad - 2 * Math.PI * Math.floor((rad + Math.PI) / (2 * Math.PI));
 }
 
 function limit(v: number, min: number, max: number): number {
@@ -31,4 +36,4 @@ if (typeof Number.prototype.toRad === 'undefined') {
   };
 }
 
-export { toRad, limit, extend, DEG_TO_RAD };
+export { toRad, wrapAngle, limit, extend, DEG_TO_RAD };

@@ -1,18 +1,23 @@
 /* eslint-disable @typescript-eslint/no-unnecessary-condition */
 /**
- * Blob enemy: spawner (idle/spawn anim), blob (chases player, damage on touch), and gib particles.
- * Spawner creates EntityEnemyBlob via factory; blob calls _scene.incrementKillCount() on death. MainScene passes scene and images in spawnBlob().
+ * Blob enemy: spawner (idle/spawn anim), blob (chases player, damage on touch), 8-direction variants of both, and gib particles.
+ * Spawner creates a blob via the factory MainScene passes in spawnBlob(), along with the scene and images; blob calls _scene.incrementKillCount() on death.
  * Both freeze while _scene.enemiesActive is false (the demo's P key): blobs stand still and do no damage, spawners stay idle.
+ * The directional variants drop to one angle, and the blob to the original steering, while _scene.directionalSprites is false (the B key).
  */
 import TPFEntity from '~/twopointfive/entity.ts';
 import TPFTimer from '~/twopointfive/timer.ts';
+import { wrapAngle, limit } from '~/twopointfive/util.ts';
+import DirectionalSprite, { DEFAULT_DIRECTION_ROWS } from './directional-sprite.ts';
+import type { DirectionRows } from './directional-sprite.ts';
 import EntityParticle from './particle.ts';
 import type { ImageInfo, EntityContext } from '~/twopointfive/types.ts';
 
-/** What blobs and spawners need from the scene: the kill counter, and whether enemies are switched on. */
+/** What blobs and spawners need from the scene: the kill counter, whether enemies are switched on, and whether blobs use 8 directions. */
 interface EnemyScene {
   incrementKillCount(): void;
   enemiesActive: boolean;
+  directionalSprites: boolean;
 }
 
 class EntityEnemyBlobSpawner extends TPFEntity {
@@ -77,7 +82,7 @@ class EntityEnemyBlobSpawner extends TPFEntity {
 
     if (this.currentAnim === this.anims.idle) {
       if (this._manhattanDistanceTo(player) < 512) {
-        this.currentAnim = this.anims.spawn.rewind();
+        this.startSpawn(player);
       } else {
         // Idle and out of range: skip the physics step, but keep the billboard turned to the camera.
         this.updateQuad();
@@ -99,11 +104,21 @@ class EntityEnemyBlobSpawner extends TPFEntity {
           ) => TPFEntity,
           this.pos.x,
           this.pos.y,
-          {},
+          this.blobSettings(),
         );
       }
       this.kill();
     }
+  }
+
+  /** Starts the drip-and-drop animation; the player has come within range. */
+  startSpawn(_player: TPFEntity): void {
+    this.currentAnim = this.anims.spawn.rewind();
+  }
+
+  /** Settings for the blob spawned at the end of the animation. */
+  blobSettings(): Record<string, unknown> {
+    return {};
   }
 
   _manhattanDistanceTo(other: TPFEntity): number {
@@ -183,11 +198,15 @@ class EntityEnemyBlob extends TPFEntity {
       return;
     }
 
+    this.steer(player);
+    super.update();
+  }
+
+  /** Heads straight for the player. */
+  steer(player: TPFEntity): void {
     this.angle = this.angleTo(player);
     this.vel.x = Math.cos(this.angle) * this.speed;
     this.vel.y = Math.sin(this.angle) * this.speed;
-
-    super.update();
   }
 
   kill(): void {
@@ -231,6 +250,115 @@ class EntityEnemyBlob extends TPFEntity {
 }
 
 // ---------------------------------------------------------------------------
+// EntityEnemyBlobDirectional
+// ---------------------------------------------------------------------------
+
+/**
+ * Blob drawn from an 8-direction sheet (media/blob-directions.png), showing the row for the side the
+ * camera sees. It turns toward the player at no more than turnRate instead of snapping, which is what
+ * brings its sides and back into view. While the scene's directionalSprites is false it shows its front row,
+ * the one-angle sprite, and steers like EntityEnemyBlob.
+ */
+class EntityEnemyBlobDirectional extends EntityEnemyBlob {
+  /**
+   * Radians per second. At the default speed, keep it above about 140°/s: any slower and the blob's
+   * turning circle outgrows the player, so it can circle without ever touching.
+   */
+  turnRate: number;
+  /** Which sheet row holds each direction. A sheet laid out differently passes its own in settings, beside blobDirectionsImage. */
+  directionRows: DirectionRows;
+  _directions: DirectionalSprite | null;
+
+  constructor(x: number, y: number, settings: Record<string, unknown> | null, context: Partial<EntityContext> | null) {
+    super(x, y, settings, context);
+    this.turnRate = Math.PI;
+    this.directionRows = DEFAULT_DIRECTION_ROWS;
+    this._directions = null;
+    // Row 0 of the 8-direction sheet is the one-angle sheet, so it serves both modes.
+    this._blobImage = (settings && (settings.blobDirectionsImage as ImageInfo)) || this._blobImage;
+  }
+
+  init(x: number, y: number, settings: Record<string, unknown> | null): void {
+    // TPFEntity.init() copies settings onto the entity, so a directionRows setting is in place by now.
+    super.init(x, y, settings);
+    if (this.animSheet) this._directions = new DirectionalSprite(this, this.directionRows);
+    // Keep a heading handed over in settings (a directional spawner passes the way it faced); otherwise start
+    // out facing the player rather than east, so a new blob doesn't swing round on its first steps.
+    if (this._player && !(settings && 'angle' in settings)) this.angle = this.angleTo(this._player);
+    // TPFEntity.init() already set the tile, before there was a row to pick; set it again so the first
+    // frame drawn is the right row, not the front.
+    if (this._directions) this.updateQuad();
+  }
+
+  steer(player: TPFEntity): void {
+    if (!this._directional()) {
+      super.steer(player);
+      return;
+    }
+    const maxTurn = this.turnRate * (this.context.tick || 1 / 60);
+    this.angle = wrapAngle(this.angle + limit(wrapAngle(this.angleTo(player) - this.angle), -maxTurn, maxTurn));
+    this.vel.x = Math.cos(this.angle) * this.speed;
+    this.vel.y = Math.sin(this.angle) * this.speed;
+  }
+
+  updateQuad(): void {
+    this._directions?.update(this, this.angle, this._directional());
+    super.updateQuad();
+  }
+
+  /** On unless the scene has switched blobs to one angle; a blob spawned without a scene stays directional. */
+  _directional(): boolean {
+    return !this._scene || this._scene.directionalSprites;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// EntityEnemyBlobSpawnerDirectional
+// ---------------------------------------------------------------------------
+
+/**
+ * Spawner drawn from an 8-direction sheet (media/blob-spawn-directions.png). It doesn't move, so it takes a
+ * heading when its animation starts, facing the player, and keeps it: walk round it mid-spawn and you see
+ * its sides. The blob it spawns starts with that heading, so the view doesn't jump at the hand-over. While
+ * the scene's directionalSprites is false it shows its front row, the one-angle sprite.
+ */
+class EntityEnemyBlobSpawnerDirectional extends EntityEnemyBlobSpawner {
+  /** Which sheet row holds each direction. A sheet laid out differently passes its own in settings, beside blobSpawnDirectionsImage. */
+  directionRows: DirectionRows;
+  _directions: DirectionalSprite | null;
+
+  constructor(x: number, y: number, settings: Record<string, unknown> | null, context: Partial<EntityContext> | null) {
+    super(x, y, settings, context);
+    this.directionRows = DEFAULT_DIRECTION_ROWS;
+    this._directions = null;
+    // Row 0 of the 8-direction sheet is the one-angle sheet, so it serves both modes.
+    this._blobSpawnImage = (settings && (settings.blobSpawnDirectionsImage as ImageInfo)) || this._blobSpawnImage;
+  }
+
+  init(x: number, y: number, settings: Record<string, unknown> | null): void {
+    // TPFEntity.init() copies settings onto the entity, so a directionRows setting is in place by now.
+    super.init(x, y, settings);
+    if (this.animSheet) this._directions = new DirectionalSprite(this, this.directionRows);
+    // TPFEntity.init() set the tile before there was a row to pick; set it again.
+    if (this._directions) this.updateQuad();
+  }
+
+  startSpawn(player: TPFEntity): void {
+    this.angle = this.angleTo(player);
+    super.startSpawn(player);
+  }
+
+  blobSettings(): Record<string, unknown> {
+    return { angle: this.angle };
+  }
+
+  updateQuad(): void {
+    this._directions?.update(this, this.angle, !this._scene || this._scene.directionalSprites);
+    super.updateQuad();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // EntityEnemyBlobGib
 // ---------------------------------------------------------------------------
 
@@ -256,4 +384,10 @@ class EntityEnemyBlobGib extends EntityParticle {
   }
 }
 
-export { EntityEnemyBlobSpawner, EntityEnemyBlob, EntityEnemyBlobGib };
+export {
+  EntityEnemyBlobSpawner,
+  EntityEnemyBlobSpawnerDirectional,
+  EntityEnemyBlob,
+  EntityEnemyBlobDirectional,
+  EntityEnemyBlobGib,
+};
