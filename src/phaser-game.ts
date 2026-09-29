@@ -122,7 +122,8 @@ export class MainScene extends Phaser.Scene {
   enemiesActive: boolean;
   /**
    * False while the B key has the 8-direction sprites (blobs, spawners, grenades) on their original one angle,
-   * and blobs on their original steering. Each reads it through its injected scene.
+   * with the original behaviour too: blobs snap straight at you and grenades don't spin off walls. Each reads
+   * it through its injected scene.
    */
   directionalSprites: boolean;
 
@@ -589,8 +590,8 @@ export class MainScene extends Phaser.Scene {
     });
 
     // Press B to switch between the 8-direction sprites and the original one-angle ones: blobs (which also go
-    // back from turning to follow you to snapping straight at you), spawners and grenades. Every one switches
-    // at once, including ones on screen.
+    // back from turning to follow you to snapping straight at you), spawners, and grenades (which stop spinning
+    // off walls). Every one switches at once, including ones on screen.
     this.directionalSprites = true;
     this.input.keyboard?.on('keydown-B', (event: KeyboardEvent) => {
       if (event.repeat) return;
