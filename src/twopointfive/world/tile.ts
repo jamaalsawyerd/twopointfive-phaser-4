@@ -7,6 +7,13 @@ import type Renderer from '~/twopointfive/renderer/renderer.ts';
 import type { ImageInfo, TPFTexture } from '~/twopointfive/types.ts';
 import type Animation from '../animation.ts';
 
+/**
+ * How far sprite-sheet UVs are pulled in from the frame's edges, in texels. Nearest sampling right at a
+ * frame's edge can round into the neighbouring frame and draw a hairline of it; seam-expanded tilesets
+ * have a copied border there instead and need no inset.
+ */
+const UV_INSET = 1 / 16;
+
 /** Single tile from a tileset image; setTile() updates UVs; seamsExpanded adds 2px spacing. */
 class Tile {
   tile: number;
@@ -41,8 +48,10 @@ class Tile {
     const py = (ty * this.tileHeight + ty * tileSpacing) / texH;
     const wx = this.tileWidth / texW;
     const wy = this.tileHeight / texH;
+    const ix = this.image.seamsExpanded ? 0 : UV_INSET / texW;
+    const iy = this.image.seamsExpanded ? 0 : UV_INSET / texH;
     // py measures from the image top; textures upload flipped (Phaser default), so mirror V.
-    this.quad.setUV(px, 1 - (py + wy), px + wx, 1 - py);
+    this.quad.setUV(px + ix, 1 - (py + wy) + iy, px + wx - ix, 1 - py - iy);
   }
 
   setTileInBuffer(buffer: Float32Array, offset: number, t: number): void {
@@ -56,7 +65,9 @@ class Tile {
     const py = (ty * this.tileHeight + ty * tileSpacing) / texH;
     const wx = this.tileWidth / texW;
     const wy = this.tileHeight / texH;
-    Quad.setUVInBuffer(buffer, offset, px, 1 - (py + wy), px + wx, 1 - py);
+    const ix = this.image.seamsExpanded ? 0 : UV_INSET / texW;
+    const iy = this.image.seamsExpanded ? 0 : UV_INSET / texH;
+    Quad.setUVInBuffer(buffer, offset, px + ix, 1 - (py + wy) + iy, px + wx - ix, 1 - py - iy);
   }
 
   draw(renderer: Renderer): void {
