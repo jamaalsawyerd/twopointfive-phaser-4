@@ -387,13 +387,17 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     return source?.glTexture || null;
   }
 
-  setTileset(name: string, imageOrTexture: PhaserTextureInput): TilesetInfo | null {
+  /**
+   * Registers a tileset under the name level layers use for it (their `tilesetName`). `tilesize` is
+   * the tile size in the image, which the seam expansion needs; it must match the level's layers.
+   */
+  setTileset(name: string, imageOrTexture: PhaserTextureInput, tilesize = 64): TilesetInfo | null {
     if (!this.renderer) return null;
     const img = this._resolveSourceImage(imageOrTexture);
     if (!img) return null;
     const globalPlugin = this.pluginManager.get('TwoPointFivePlugin') as TwoPointFivePlugin | null;
     const tpf = globalPlugin?.TPF ? globalPlugin.TPF : TPF;
-    const expanded = tpf.expandSeams(img as HTMLImageElement, 64);
+    const expanded = tpf.expandSeams(img as HTMLImageElement, tilesize);
     // The seam-expanded canvas is registered with Phaser's TextureManager so the GL texture is
     // Phaser-managed (context-loss safe). Textures persist across scene restarts, so reuse the key.
     let texture: TPFTexture | null = null;

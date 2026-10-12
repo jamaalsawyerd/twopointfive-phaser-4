@@ -41,7 +41,7 @@ plugins: {
 ```
 
 2. In a scene that uses 2.5D:
-   - Call `this.tpf.setTileset(name, texture)` for each tileset (after loading).
+   - Call `this.tpf.setTileset(name, texture, tilesize)` for each tileset (after loading). `name` is the `tilesetName` the level's layers use; `tilesize` is the tile size in pixels in the image (default `64`) and must match those layers.
    - Call `this.tpf.setLightMapPixels(name, imageData)` if you use a light layer.
    - Call `this.tpf.registerEntityClass('EntityTypeName', YourEntityClass)` before loading a level.
    - Call `this.tpf.loadLevel(levelData)` with Impact-style level JSON (layers: floor, ceiling, walls, collision, light; entities array).
