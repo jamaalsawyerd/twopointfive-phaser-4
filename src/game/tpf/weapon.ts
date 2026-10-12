@@ -4,7 +4,7 @@
  * and calls trigger().
  */
 import TPFTimer from '~/twopointfive/timer.ts';
-import Animation from './animation.ts';
+import Animation from '~/twopointfive/animation.ts';
 import type Phaser from 'phaser';
 import type GameState from '~/twopointfive/game.ts';
 import type { Color } from '~/twopointfive/types.ts';

@@ -5,7 +5,7 @@
 import { Tile } from './tile.ts';
 import type { ImageInfo } from '~/twopointfive/types.ts';
 import type LightMap from './light-map.ts';
-import type Animation from '~/game/tpf/animation.ts';
+import type Animation from '../animation.ts';
 
 const DEG_TO_RAD = Math.PI / 180;
 

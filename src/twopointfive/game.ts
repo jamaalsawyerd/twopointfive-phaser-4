@@ -13,7 +13,7 @@ import type Renderer from './renderer/renderer.ts';
 import type PerspectiveCamera from './renderer/perspective-camera.ts';
 import type { TPFEntityDisplayAdapter } from './entity-display-adapter.ts';
 import type { CollisionMapLike, LevelData, EntityContext } from './types.ts';
-import type Animation from '~/game/tpf/animation.ts';
+import type Animation from './animation.ts';
 
 /** Injected into GameState and passed to entities; provides renderer, camera, tick, gravity, tilesets. */
 export interface GameContext {

@@ -5,7 +5,7 @@
 import Map from './map.ts';
 import { Tile } from './tile.ts';
 import type LightMap from './light-map.ts';
-import type Animation from '~/game/tpf/animation.ts';
+import type Animation from '../animation.ts';
 
 interface WallOffset {
   x: number;

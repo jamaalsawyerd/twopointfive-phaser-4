@@ -12,7 +12,7 @@ This repository includes a **Phaser 4**-compatible plugin (converted from the or
 - **`media/`** — Shared assets (tilesets, levels, etc.) used by both the Impact and Phaser versions.
 - **`src/`** — Phaser 4 / TypeScript source:
   - **`src/game/`** — All game-specific classes (entities, weapons, pickups, etc.).
-  - **`src/twopointfive/`** — The TwoPointFive plugin: renderer, camera, world (map, culling, light map, collision), entities, and plugin entry.
+  - **`src/twopointfive/`** — The TwoPointFive plugin: renderer, camera, world (map, culling, light map, collision), entities, sprite-sheet animation, timers, and plugin entry. It imports nothing from `src/game/`, so it can be copied into another project on its own.
   - **`src/phaser-game.ts`** — Phaser game bootstrap and scene logic (loading, level, update, render).
 - **`index.html`** — Entry point for the Phaser demo; **`impact-index.html`** — Entry point for the Impact demo; **`weltmeister.html`** — Entry point for the Weltmeister editor.
 - Use the Node version in **`.nvmrc`** when cloning; then `npm install`, `npm run build`, and `npm start` (or any static server).

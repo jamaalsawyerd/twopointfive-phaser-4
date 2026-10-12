@@ -7,7 +7,7 @@
  */
 import type TPFEntity from '~/twopointfive/entity.ts';
 import { toRad, wrapAngle } from '~/twopointfive/util.ts';
-import type Animation from './animation.ts';
+import type Animation from '~/twopointfive/animation.ts';
 
 /**
  * Which way an entity faces, as the viewer sees it. `front` faces the camera, `right` is the entity's

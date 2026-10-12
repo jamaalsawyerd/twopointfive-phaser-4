@@ -5,7 +5,7 @@
 import Quad from '~/twopointfive/renderer/quad.ts';
 import type Renderer from '~/twopointfive/renderer/renderer.ts';
 import type { ImageInfo, TPFTexture } from '~/twopointfive/types.ts';
-import type Animation from '~/game/tpf/animation.ts';
+import type Animation from '../animation.ts';
 
 /** Single tile from a tileset image; setTile() updates UVs; seamsExpanded adds 2px spacing. */
 class Tile {

@@ -29,7 +29,7 @@ Notes:
 
 ## Project structure
 
-- `src/twopointfive/` — engine/plugin code: renderer, cameras, world maps, collision, entity base class, timer, utilities, and public exports.
+- `src/twopointfive/` — engine/plugin code: renderer, cameras, world maps, collision, entity base class, sprite-sheet animation, timer, utilities, and public exports. The engine imports nothing from `src/game/`.
 - `src/game/` — Phaser demo game objects and gameplay entities, including the HUD minimap (`src/game/tpf/hud-minimap.ts`) and 8-direction billboards (`src/game/tpf/directional-sprite.ts`).
 - `src/phaser-game.ts` — Phaser scene bootstrap, asset loading, plugin setup, HUD, input, and spawn logic.
 - `media/` — shared assets used by the demo.

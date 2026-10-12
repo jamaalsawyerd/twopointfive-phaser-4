@@ -4,7 +4,7 @@
  * context.tick (frame delta) so simulation is deterministic per frame.
  */
 import { Tile } from './world/tile.ts';
-import Animation from '~/game/tpf/animation.ts';
+import Animation from './animation.ts';
 import type Renderer from './renderer/renderer.ts';
 import type { Vec2, Vec3, AnimSheet, EntityContext, Color, TraceResult } from './types.ts';
 

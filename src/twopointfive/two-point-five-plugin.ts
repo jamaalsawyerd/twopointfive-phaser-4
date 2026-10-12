@@ -21,7 +21,7 @@ import TwoPointFiveSoundController from './sound-controller.ts';
 import TwoPointFiveTimeController from './time-controller.ts';
 import { glState } from './renderer/renderer.ts';
 import type { TPFRenderAdapter } from './render-adapter.ts';
-import type Animation from '~/game/tpf/animation.ts';
+import type Animation from './animation.ts';
 import type TPFEntity from './entity.ts';
 
 // Augment Phaser.Scene so `this.tpf` is typed
