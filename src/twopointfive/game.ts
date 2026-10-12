@@ -32,6 +32,11 @@ export interface GameContext {
   horizontalFov?: () => number;
 }
 
+/** Whether an entity has been killed; a function so the flag is re-read after calls that may set it. */
+function isKilled(entity: TPFEntity): boolean {
+  return entity._killed;
+}
+
 /** Owns level data, entities, collision/light/maps; runs loadLevel, spawnEntity, checkEntities, draw. */
 class GameState {
   context: GameContext;
@@ -231,12 +236,16 @@ class GameState {
           continue;
         }
 
+        // A check() may kill either entity (a projectile hitting something kills itself). Impact stopped
+        // checking a killed entity at once; without the guards a projectile could hit twice in one pass.
+        // isKilled() re-reads the flag, which TypeScript would otherwise assume the checks above fixed.
         if (a.checkAgainst & b.type) a.check(b);
-        if (b.checkAgainst & a.type) b.check(a);
+        if (!isKilled(a) && !isKilled(b) && b.checkAgainst & a.type) b.check(a);
 
-        if (hasCollide) {
+        if (hasCollide && !isKilled(a) && !isKilled(b)) {
           GameState._solveCollision(a, b, collisionMap);
         }
+        if (isKilled(a)) break;
       }
     }
   }
