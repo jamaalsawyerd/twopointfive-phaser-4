@@ -55,6 +55,9 @@ class Renderer {
   whiteTexture: TPFTexture | null;
   width: number;
   height: number;
+  /** Blend and depth-write state currently applied for the active material (see _applyMaterialState). */
+  _additive: boolean;
+  _depthWrite: boolean;
 
   constructor(
     canvasOrGL: HTMLCanvasElement | WebGLRenderingContext,
@@ -74,6 +77,8 @@ class Renderer {
     this.canvas = null;
     this.width = 0;
     this.height = 0;
+    this._additive = false;
+    this._depthWrite = true;
 
     if (canvasOrGL && typeof (canvasOrGL as HTMLCanvasElement).getContext === 'function') {
       const canvas = canvasOrGL as HTMLCanvasElement;
@@ -142,6 +147,8 @@ class Renderer {
   }
 
   clear(color?: boolean, depth?: boolean, stencil?: boolean): void {
+    // gl.clear honours the depth mask; a material that turned depth writes off must not stop the clear.
+    if (depth) this._setDepthWrite(true);
     this.gl.clear(
       (color ? this.gl.COLOR_BUFFER_BIT : 0) |
         (depth ? this.gl.DEPTH_BUFFER_BIT : 0) |
@@ -163,8 +170,53 @@ class Renderer {
         },
       }),
     );
+    this._additive = false;
+    this._setDepthWrite(true);
     this.node.activate(this.node.activeMaterial, true);
+    this._applyMaterialState(this.node.activeMaterial);
     this.setClearColor(0, 0, 0, 1);
+  }
+
+  /**
+   * Puts back the blend function and depth mask a material may have changed. Phaser tracks blend state
+   * itself but not the depth mask, so the world pass calls this before handing GL back to Phaser.
+   */
+  restoreDefaultState(): void {
+    this.flush();
+    if (this._additive) this._setBlend(false);
+    this._setDepthWrite(true);
+  }
+
+  /** Applies a material's blend, depth-test and depth-write settings. */
+  _applyMaterialState(material: TPFQuadMaterial): void {
+    const config = this.node.getMaterialConfig(material.key);
+    const additive = config?.blend === 'additive';
+    if (additive !== this._additive) this._setBlend(additive);
+    this.phaserRenderer.glWrapper.updateDepthTest({ depthTest: config?.depthTest === false ? false : this.depthTest });
+    this._setDepthWrite(config?.depthWrite !== false);
+  }
+
+  _setBlend(additive: boolean): void {
+    const gl = this.gl;
+    const dst = additive ? gl.ONE : gl.ONE_MINUS_SRC_ALPHA;
+    this.phaserRenderer.glWrapper.updateBlend(
+      glState({
+        blend: {
+          enabled: true,
+          color: [0, 0, 0, 0],
+          equation: [gl.FUNC_ADD, gl.FUNC_ADD],
+          func: [gl.SRC_ALPHA, dst, gl.SRC_ALPHA, dst],
+        },
+      }),
+    );
+    this._additive = additive;
+  }
+
+  /** Raw gl.depthMask: Phaser's state tracker has no depth-mask entry, so it is restored by hand. */
+  _setDepthWrite(write: boolean): void {
+    if (write === this._depthWrite) return;
+    this.gl.depthMask(write);
+    this._depthWrite = write;
   }
 
   flush(): void {
@@ -212,6 +264,7 @@ class Renderer {
     if (next.key === active.key && !next.uniforms && !active.uniforms) return;
     this.flush();
     this.node.activate(next);
+    this._applyMaterialState(next);
   }
 
   pushQuad(quad: Quad): void {

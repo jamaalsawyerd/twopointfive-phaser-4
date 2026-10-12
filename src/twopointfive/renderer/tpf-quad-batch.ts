@@ -32,6 +32,21 @@ export interface TPFMaterialConfig {
    * texel, such as a full-screen blit or an additive effect.
    */
   alphaDiscard?: boolean;
+  /**
+   * How the material combines with what is behind it. `'additive'` adds its colour (scaled by alpha),
+   * for glows and light beams drawn on black; the default `'normal'` is ordinary alpha blending.
+   */
+  blend?: 'normal' | 'additive';
+  /**
+   * Set false to draw regardless of depth, over walls in front (this also skips depth writes).
+   * Default true.
+   */
+  depthTest?: boolean;
+  /**
+   * Set false to depth-test without writing depth, so translucent quads don't hide whatever is drawn
+   * after them. Default true.
+   */
+  depthWrite?: boolean;
 }
 
 interface ProgramSuite {
@@ -160,6 +175,11 @@ export class TPFQuadBatchNode extends Phaser.Renderer.WebGL.RenderNodes.RenderNo
 
   hasMaterial(key: string): boolean {
     return this._materials.has(key);
+  }
+
+  /** The registered config for a material key, if any. */
+  getMaterialConfig(key: string): TPFMaterialConfig | undefined {
+    return this._materials.get(key);
   }
 
   _getSuite(key: string, fog: boolean): ProgramSuite {

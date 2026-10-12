@@ -73,6 +73,31 @@ plugins: {
    or `0` (open), in world pixels; `getTile(x, y)` reads it back. Movement, raycasts and line of sight
    see the change at once.
 
+### Entity materials
+
+A material gives entities a custom fragment shader while they keep wall occlusion and fog. Register
+it once, then apply it per entity:
+
+```javascript
+this.tpf.registerMaterial('glow', {
+  fragmentUniforms: 'uniform float strength;',
+  fragmentBody: '  gl_FragColor.rgb *= strength;',  // runs after gl_FragColor = tex * vColor;
+  uniforms: { strength: 1.5 },
+  blend: 'additive',     // add to what is behind, for glows and beams ('normal' is alpha blending)
+  depthWrite: false,     // still hidden by walls, but doesn't hide sprites drawn after it
+});
+entity.setMaterial('glow');            // or setMaterial('glow', { strength: 3 }) for this entity only
+entity.zIndex = 1;                     // draw it after the opaque sprites
+entity.clearMaterial();
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `alphaDiscard` | `true` | Drop texels below alpha 0.8, so sprite cutouts don't write depth. `false` keeps every texel. |
+| `blend` | `'normal'` | `'additive'` adds the colour, scaled by alpha, to what is behind. |
+| `depthTest` | `true` | `false` draws over walls in front (and writes no depth). |
+| `depthWrite` | `true` | `false` still depth-tests but writes no depth, for translucent quads. |
+
 ### Simulation step
 
 `context.tick` is the frame's delta in seconds, capped at `this.tpf.maxTick` (default `0.05`, Impact's

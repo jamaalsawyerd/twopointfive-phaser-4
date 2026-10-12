@@ -673,6 +673,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
       this._blitWorldTarget(target);
     }
 
+    this.renderer.restoreDefaultState();
     glWrapper.updateDepthTest({ depthTest: false });
     this.renderer.depthTest = false;
     if (!coversTarget) {
