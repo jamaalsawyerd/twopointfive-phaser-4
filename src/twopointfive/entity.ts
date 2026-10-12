@@ -37,6 +37,13 @@ class TPFEntity {
   scale: number;
   dynamicLight: boolean;
   rotateToView: boolean;
+  /**
+   * When rotateToView is off, turns the billboard to face the camera's position rather than lying
+   * parallel to the view plane, so it keeps its width when seen from the side.
+   */
+  rotateToCamera: boolean;
+  /** Non-zero entities are drawn after the rest of their visible sectors, in zIndex order. */
+  zIndex: number;
   gravityFactor: number;
   /**
    * Whether update() runs the vertical physics (gravity on vel.z, pos.z integration, floor clamp at 0).
@@ -72,6 +79,8 @@ class TPFEntity {
     this.scale = 0.25;
     this.dynamicLight = true;
     this.rotateToView = true;
+    this.rotateToCamera = false;
+    this.zIndex = 0;
     this.gravityFactor = 1;
     this.zPhysics = true;
     this.friction = { x: 0, y: 0 };
@@ -186,6 +195,9 @@ class TPFEntity {
       tpos[1] = this.pos.z - ts / 2 + (this.animSheet!.height * this.scale) / 2;
       if (this.rotateToView && camera) {
         this.tile.quad.rotation[1] = camera.rotation[1];
+      } else if (this.rotateToCamera && camera) {
+        this.tile.quad.rotation[1] =
+          -Math.atan2(camera.position[2] - tpos[2], camera.position[0] - tpos[0]) + Math.PI / 2;
       }
       this.tile.quad._dirty = true;
     }

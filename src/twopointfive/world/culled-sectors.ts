@@ -35,9 +35,7 @@ interface ViewFrustum {
 }
 
 function sortByZIndex(a: TPFEntity, b: TPFEntity): number {
-  return (
-    ((a as unknown as Record<string, number>).zIndex || 0) - ((b as unknown as Record<string, number>).zIndex || 0)
-  );
+  return a.zIndex - b.zIndex;
 }
 
 /** Builds sectors from floor + geometry maps; collectVisibleSectors uses camera pos/angle/fov. */
@@ -79,7 +77,7 @@ class CulledSectors {
     for (const s in visibleSectors) {
       const ents = visibleSectors[s].entities;
       for (const e in ents) {
-        if ((ents[e] as unknown as Record<string, number>).zIndex) {
+        if (ents[e].zIndex) {
           deferredDraw.push(ents[e]);
         } else {
           ents[e].draw(renderer);

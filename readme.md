@@ -56,6 +56,11 @@ plugins: {
 3. Entity classes should extend `TPF.TPFEntity` and receive a `context` (collisionMap, culledSectors, renderer, camera, gravity, tick). Use `this.context` in `update()` and `updateQuad()`. Options set in the constructor:
    - `zPhysics` (default `true`): `update()` applies gravity to `vel.z`, moves `pos.z` and stops it at
      the floor (`0`). Set it to `false` for an entity that sets `pos.z` itself, including below the floor.
+   - `rotateToView` (default `true`): the billboard lies parallel to the view plane, like a Doom sprite.
+     With it off, `rotateToCamera = true` turns it to face the camera's position instead, so it keeps its
+     width when seen near the edge of the screen. With both off it keeps whatever rotation you give it.
+   - `zIndex` (default `0`): non-zero entities are drawn after everything else in the visible sectors,
+     lowest first. Use it for translucent or additive effects that should draw over other sprites.
 
 ### Simulation step
 
