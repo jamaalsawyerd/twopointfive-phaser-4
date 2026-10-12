@@ -828,7 +828,8 @@ export class MainScene extends Phaser.Scene {
       this._player._mouseDeltaX = inputController.consumeMouseDeltaX();
       this._player._mouseDown = inputController.mouseDown;
     }
-    this.checkSpawn(delta / 1000);
+    // The same capped step the entities and TPFTimer clock advance by, so spawning keeps pace with the game.
+    this.checkSpawn(Math.min(delta / 1000, this.tpf.maxTick));
 
     // Drive the demo-pulse material's animation. The TPFQuadBatch node re-applies material
     // uniforms on every activation (at least once per frame), so mutating the shared uniforms

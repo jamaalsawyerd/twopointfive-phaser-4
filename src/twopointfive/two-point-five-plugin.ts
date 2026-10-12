@@ -461,6 +461,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   update(delta?: number): void {
     if (!this.gameState?.entities) return;
     const tick = Math.min((delta || this.game.loop.delta) / 1000, this.maxTick);
+    this.timeController?.step(tick);
     const ctx = this.gameState.context;
     if (ctx) ctx.tick = tick;
     const entities = this.gameState.entities.slice();

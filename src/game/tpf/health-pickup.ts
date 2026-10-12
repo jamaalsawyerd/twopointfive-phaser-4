@@ -5,7 +5,7 @@ import TPFEntity from '~/twopointfive/entity.ts';
 import TPFTimer from '~/twopointfive/timer.ts';
 import type { ImageInfo, EntityContext } from '~/twopointfive/types.ts';
 
-/** checkAgainst TYPE.A; bounce uses bounceTimer (real time). */
+/** checkAgainst TYPE.A; bounce uses bounceTimer (simulation time). */
 class EntityHealthPickup extends TPFEntity {
   amount: number;
   _healthImage: ImageInfo | null;

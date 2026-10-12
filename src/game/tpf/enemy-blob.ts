@@ -73,7 +73,7 @@ class EntityEnemyBlobSpawner extends TPFEntity {
     }
 
     // Enemies switched off: stay idle. A spawn in progress starts over later, because animations run on the
-    // scene clock and a paused one would otherwise finish the moment enemies came back.
+    // shared simulation clock, which keeps running, so a held one would finish the moment enemies came back.
     if (this._scene && !this._scene.enemiesActive) {
       this.currentAnim = this.anims.idle;
       this.updateQuad();

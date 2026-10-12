@@ -117,12 +117,19 @@ In `fragmentBody`, `tex` is the sampled texel with straight alpha: Phaser upload
 premultiplied, and the shader divides that back out before your code runs, to match the engine's
 straight-alpha blending.
 
-### Simulation step
+### Simulation step and timers
 
 `context.tick` is the frame's delta in seconds, capped at `this.tpf.maxTick` (default `0.05`, Impact's
 `Timer.maxStep`). Above 20 fps that is the real frame time; below it the game slows down instead of
 moving entities in big jumps, which would let fast projectiles pass through walls and enemies. Set it
 from `create()` if your game needs a different cap.
+
+`TPFTimer` (and so `Animation`, which entities and weapons use) runs on simulation time: the sum of
+those capped steps since the scene started. Timers stand still while the scene is paused or its tab is
+hidden, instead of all expiring at once when it resumes, and they keep pace with entity movement
+through slow frames. The clock restarts at 0 with each `scene.restart()`. Anything that should keep
+running while the game is paused, such as a pause menu's animation, belongs on Phaser's clock
+(`this.time`, tweens) instead.
 
 ### Configuring the view
 

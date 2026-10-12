@@ -1,6 +1,7 @@
 /**
- * Frame-based sprite animation: sequence of tile indices, advanced by real time (TPFTimer).
- * Used by entities and maps. Independent of ctx.tick so animation rate is wall-clock.
+ * Frame-based sprite animation: sequence of tile indices, advanced by TPFTimer, i.e. simulation time.
+ * Used by entities and maps. The frame is worked out from the clock, not summed from ctx.tick, so
+ * an update() that is skipped for a while doesn't put it behind.
  */
 import TPFTimer from './timer.ts';
 

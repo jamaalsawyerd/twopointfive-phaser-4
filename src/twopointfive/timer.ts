@@ -1,6 +1,7 @@
 /**
- * Real-time timer for countdowns and elapsed time. Used by animations, weapons, and entities.
- * Clock source can be provided by Phaser so timers follow the scene clock.
+ * Timer for countdowns and elapsed time. Used by animations, weapons, and entities.
+ * While a scene has the plugin enabled, the clock is its TwoPointFiveTimeController: the sum of the
+ * simulation steps, so timers stop while the scene is paused. Otherwise it falls back to performance.now().
  */
 /** Countdown timer: delta() is negative while counting down, 0 at expiry, positive after. */
 class TPFTimer {
