@@ -22,7 +22,10 @@ export const DEFAULT_MATERIAL: TPFQuadMaterial = { key: 'default' };
 export interface TPFMaterialConfig {
   /** GLSL uniform declarations, e.g. 'uniform vec3 tintColor;'. */
   fragmentUniforms?: string;
-  /** GLSL statements run after `gl_FragColor = tex * vColor;`; may modify gl_FragColor. */
+  /**
+   * GLSL statements run after `gl_FragColor = tex * vColor;`; may modify gl_FragColor. `tex` holds the
+   * sampled texel with straight (not premultiplied) alpha.
+   */
   fragmentBody?: string;
   /** Default uniform values applied when the material is activated. */
   uniforms?: Record<string, number | number[]>;
@@ -97,6 +100,10 @@ function composeFragmentShader(material: TPFMaterialConfig, fog: boolean): strin
     material.fragmentUniforms || '',
     'void main(void) {',
     '  vec4 tex = texture2D(texture, vUv);',
+    // Phaser uploads textures with premultiplied alpha, but the engine blends with straight alpha
+    // (SRC_ALPHA, ONE_MINUS_SRC_ALPHA). Undo the premultiplication so translucent texels aren't
+    // scaled by their alpha twice; opaque and cut-out texels are unaffected.
+    '  if( tex.a > 0.0 ) tex.rgb /= tex.a;',
     material.alphaDiscard === false ? '' : '  if( tex.a < 0.8 ) discard;',
     '  gl_FragColor = tex * vColor;',
     material.fragmentBody || '',

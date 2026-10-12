@@ -113,6 +113,10 @@ entity.clearMaterial();
 | `depthTest` | `true` | `false` draws over walls in front (and writes no depth). |
 | `depthWrite` | `true` | `false` still depth-tests but writes no depth, for translucent quads. |
 
+In `fragmentBody`, `tex` is the sampled texel with straight alpha: Phaser uploads textures
+premultiplied, and the shader divides that back out before your code runs, to match the engine's
+straight-alpha blending.
+
 ### Simulation step
 
 `context.tick` is the frame's delta in seconds, capped at `this.tpf.maxTick` (default `0.05`, Impact's
