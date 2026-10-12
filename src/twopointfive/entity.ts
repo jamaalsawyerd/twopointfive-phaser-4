@@ -38,6 +38,11 @@ class TPFEntity {
   dynamicLight: boolean;
   rotateToView: boolean;
   gravityFactor: number;
+  /**
+   * Whether update() runs the vertical physics (gravity on vel.z, pos.z integration, floor clamp at 0).
+   * Turn it off for entities that set pos.z themselves, including below the floor.
+   */
+  zPhysics: boolean;
   friction: Vec2;
   bounciness: number;
   minBounceVelocity: number;
@@ -68,6 +73,7 @@ class TPFEntity {
     this.dynamicLight = true;
     this.rotateToView = true;
     this.gravityFactor = 1;
+    this.zPhysics = true;
     this.friction = { x: 0, y: 0 };
     this.bounciness = 0;
     this.minBounceVelocity = 0;
@@ -223,10 +229,10 @@ class TPFEntity {
 
     this.last.x = this.pos.x;
     this.last.y = this.pos.y;
-    this.vel.z -= gravity * tick * this.gravityFactor;
+    if (this.zPhysics) this.vel.z -= gravity * tick * this.gravityFactor;
     this.vel.x = this.getNewVelocity(this.vel.x, this.accel.x, this.friction.x, this.maxVel.x);
     this.vel.y = this.getNewVelocity(this.vel.y, this.accel.y, this.friction.y, this.maxVel.y);
-    this.vel.z = this.getNewVelocity(this.vel.z, this.accel.z, 0, this.maxVel.z);
+    if (this.zPhysics) this.vel.z = this.getNewVelocity(this.vel.z, this.accel.z, 0, this.maxVel.z);
 
     const mx = this.vel.x * tick;
     const my = this.vel.y * tick;
@@ -240,14 +246,16 @@ class TPFEntity {
           };
     this.handleMovementTrace(res);
 
-    this.pos.z += this.vel.z;
-    if (this.pos.z < 0) {
-      if (this.bounciness > 0 && Math.abs(this.vel.z) > this.minBounceVelocity) {
-        this.vel.z *= -this.bounciness;
-      } else {
-        this.vel.z = 0;
+    if (this.zPhysics) {
+      this.pos.z += this.vel.z;
+      if (this.pos.z < 0) {
+        if (this.bounciness > 0 && Math.abs(this.vel.z) > this.minBounceVelocity) {
+          this.vel.z *= -this.bounciness;
+        } else {
+          this.vel.z = 0;
+        }
+        this.pos.z = 0;
       }
-      this.pos.z = 0;
     }
     this.currentAnim?.update();
     this.updateQuad();

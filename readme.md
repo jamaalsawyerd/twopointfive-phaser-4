@@ -53,7 +53,9 @@ plugins: {
    - In the scene's `render` event call `this.tpf.draw()`.
    - Hide the default Phaser camera if you use only the 2.5D view: `this.cameras.main.setVisible(false)`.
 
-3. Entity classes should extend `TPF.TPFEntity` and receive a `context` (collisionMap, culledSectors, renderer, camera, gravity, tick). Use `this.context` in `update()` and `updateQuad()`.
+3. Entity classes should extend `TPF.TPFEntity` and receive a `context` (collisionMap, culledSectors, renderer, camera, gravity, tick). Use `this.context` in `update()` and `updateQuad()`. Options set in the constructor:
+   - `zPhysics` (default `true`): `update()` applies gravity to `vel.z`, moves `pos.z` and stops it at
+     the floor (`0`). Set it to `false` for an entity that sets `pos.z` itself, including below the floor.
 
 ### Simulation step
 
