@@ -85,6 +85,9 @@ class TwoPointFiveInputController {
   }
 
   _handleClick(): void {
+    // Already captured. Asking again makes the browser fire another pointerlockchange, which would
+    // drop the next mouse movement below as if the lock were new: every click fired lost some aim.
+    if (document.pointerLockElement === this.canvas) return;
     // Request raw mouse input. Without unadjustedMovement, movementX passes through the OS
     // pointer-acceleration ballistics (e.g. Windows "Enhance Pointer Precision"), whose
     // speed-dependent gain and per-event integer rounding make slow view turns uneven and jumpy.
