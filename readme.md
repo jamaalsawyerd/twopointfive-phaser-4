@@ -48,6 +48,9 @@ plugins: {
      `Animation` from `src/twopointfive/animation.ts` and `tileIndex` 0-based (the layer value minus 1).
      The plugin advances them every frame.
    - Call `this.tpf.registerEntityClass('EntityTypeName', YourEntityClass)` before loading a level.
+     Instead of a class you can register a factory, `(x, y, settings, context) => new YourEntityClass(...)`,
+     to inject images or sounds; write it as an arrow function, since anything with a `prototype` is
+     treated as a class and called with `new`.
    - Call `this.tpf.loadLevel(levelData)` with Impact-style level JSON (layers: floor, ceiling, walls, collision, light; entities array).
    - Call `this.tpf.createExtern()` to draw the world as a Game Object in the scene; HUD objects added
      after it draw on top. A scene that doesn't use the Extern can call `this.tpf.draw()` from its

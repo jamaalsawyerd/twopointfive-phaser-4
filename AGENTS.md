@@ -215,5 +215,5 @@ The special keys are also listed on screen, in the bottom-left corner, from `CON
 
 - Read the relevant source file before editing it; many classes rely on implicit settings injection from `MainScene`.
 - Prefer following existing patterns in nearby files instead of introducing new abstractions.
-- Be careful with constructor signatures: some entities are spawned through factories that accept either classes or plain factory functions.
+- Be careful with constructor signatures: some entities are spawned through factories that accept either classes or plain factory functions. `spawnEntity()` tells them apart by `prototype`: anything with one (a class, or a `function` expression) is called with `new`; an arrow function or method is called plainly. Write factories as arrow functions, and don't pass a bound class (`Cls.bind(...)` has no prototype). An error thrown in an entity constructor now reaches the console as itself; the old try-`new`-then-call fallback turned it into "Class constructor cannot be invoked without 'new'".
 - Verify both Phaser and engine-side implications when changing level loading, entity spawning, or rendering paths.

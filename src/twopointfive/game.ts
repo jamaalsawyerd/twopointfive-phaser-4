@@ -153,22 +153,22 @@ class GameState {
       game: this,
       displayAdapter: this.context.displayAdapter,
     };
-    let ent: TPFEntity;
-    try {
-      ent = new (Type as new (x: number, y: number, s: Record<string, unknown>, c: EntityContext) => TPFEntity)(
-        x,
-        y,
-        settings,
-        ctx,
-      );
-    } catch {
-      ent = (Type as (x: number, y: number, s: Record<string, unknown>, c: EntityContext) => TPFEntity)(
-        x,
-        y,
-        settings,
-        ctx,
-      );
-    }
+    // Classes have a prototype; arrow-function factories do not. (Telling them apart by trying `new`
+    // and falling back on failure swallowed any error thrown inside an entity's constructor.)
+    const ent: TPFEntity =
+      'prototype' in Type && Type.prototype
+        ? new (Type as new (x: number, y: number, s: Record<string, unknown>, c: EntityContext) => TPFEntity)(
+            x,
+            y,
+            settings,
+            ctx,
+          )
+        : (Type as (x: number, y: number, s: Record<string, unknown>, c: EntityContext) => TPFEntity)(
+            x,
+            y,
+            settings,
+            ctx,
+          );
     ent.init(x, y, settings);
     this.entities.push(ent);
     if (settings?.name) this.namedEntities[settings.name as string] = ent;
