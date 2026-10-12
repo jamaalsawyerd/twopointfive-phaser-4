@@ -102,6 +102,10 @@ export interface CollisionMapLike {
   trace(x: number, y: number, vx: number, vy: number, w: number, h: number): TraceResult;
   raycast(x: number, y: number, dirX: number, dirY: number, maxDistance: number): RaycastHit | null;
   lineOfSight(x0: number, y0: number, x1: number, y1: number): boolean;
+  /** The tile value at a world position in pixels (0 outside the map). */
+  getTile(x: number, y: number): number;
+  /** Sets the tile at a world position in pixels; ignored outside the map. */
+  setTile(x: number, y: number, tile: number): void;
 }
 
 /** Context passed to entities */

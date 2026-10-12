@@ -69,6 +69,10 @@ plugins: {
      spawn whatever is registered under that name, as the level loader does (useful for spawners and
      triggers driven by level settings).
 
+5. Change collision at runtime, e.g. for a door, with `getGameState().collisionMap.setTile(x, y, 1)` (solid)
+   or `0` (open), in world pixels; `getTile(x, y)` reads it back. Movement, raycasts and line of sight
+   see the change at once.
+
 ### Simulation step
 
 `context.tick` is the frame's delta in seconds, capped at `this.tpf.maxTick` (default `0.05`, Impact's

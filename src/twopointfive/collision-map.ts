@@ -28,6 +28,10 @@ class CollisionMap {
     lineOfSight(): boolean {
       return true;
     },
+    getTile(): number {
+      return 0;
+    },
+    setTile(): void {},
   };
 
   constructor(tilesize: number, data: number[][]) {
@@ -35,6 +39,23 @@ class CollisionMap {
     this.data = data;
     this.height = data.length;
     this.width = data[0] ? data[0].length : 0;
+  }
+
+  /** The tile value at a world position in pixels (0 outside the map), like Impact's Map.getTile. */
+  getTile(x: number, y: number): number {
+    const tx = Math.floor(x / this.tilesize);
+    const ty = Math.floor(y / this.tilesize);
+    return tx >= 0 && tx < this.width && ty >= 0 && ty < this.height ? this.data[ty][tx] : 0;
+  }
+
+  /**
+   * Sets the tile at a world position in pixels, e.g. a door blocking its cell. trace(), raycast() and
+   * lineOfSight() read the grid live, so the change applies to the next query. Outside the map: ignored.
+   */
+  setTile(x: number, y: number, tile: number): void {
+    const tx = Math.floor(x / this.tilesize);
+    const ty = Math.floor(y / this.tilesize);
+    if (tx >= 0 && tx < this.width && ty >= 0 && ty < this.height) this.data[ty][tx] = tile;
   }
 
   /** Advance (x,y) by (vx,vy) in steps of tilesize; return final pos and collision.x/y/slope. */
