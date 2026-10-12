@@ -49,9 +49,21 @@ plugins: {
      The plugin advances them every frame.
    - Call `this.tpf.registerEntityClass('EntityTypeName', YourEntityClass)` before loading a level.
    - Call `this.tpf.loadLevel(levelData)` with Impact-style level JSON (layers: floor, ceiling, walls, collision, light; entities array).
-   - In `update()` call `this.tpf.update(delta)`.
-   - In the scene's `render` event call `this.tpf.draw()`.
-   - Hide the default Phaser camera if you use only the 2.5D view: `this.cameras.main.setVisible(false)`.
+   - Call `this.tpf.createExtern()` to draw the world as a Game Object in the scene; HUD objects added
+     after it draw on top. A scene that doesn't use the Extern can call `this.tpf.draw()` from its
+     `render` event instead and hide the default camera (`this.cameras.main.setVisible(false)`).
+   - Entities update by themselves after the scene's `update()`, from its `postupdate` event; don't
+     call `this.tpf.update()` as well.
+
+   **The plugin is opt-in per scene.** Every scene gets `this.tpf`, but it does nothing (no renderer,
+   no click-to-capture pointer lock, no entity updates, and it leaves the shared `TPFTimer` clock
+   alone) until the scene calls `this.tpf.enable()` or anything that needs the engine:
+   `getRenderer()`, `createExtern()`, `loadLevel()`, `setTileset()`, `loadImage()`,
+   `registerMaterial()`, `draw()` or the `getInputController()` / `getSoundController()` /
+   `getTimeController()` getters. Once enabled it stays on through `scene.restart()`. So a menu or
+   pause scene that never touches `this.tpf` costs nothing and leaves the game scene's input and
+   timers alone. `update()`, `getGameState()`, `getCamera()`, `setView()` and `setFog()` don't enable
+   it: a scene that drives the engine through those alone must call `this.tpf.enable()` first.
 
 3. Entity classes should extend `TPF.TPFEntity` and receive a `context` (collisionMap, culledSectors, renderer, camera, gravity, tick). Use `this.context` in `update()` and `updateQuad()`. Options set in the constructor:
    - `zPhysics` (default `true`): `update()` applies gravity to `vel.z`, moves `pos.z` and stops it at

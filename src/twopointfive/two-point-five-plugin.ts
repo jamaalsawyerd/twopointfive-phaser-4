@@ -200,6 +200,8 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   _filterDepthHeight: number;
   _worldTarget: WorldTarget | null;
   _blitQuad: Quad | null;
+  /** Set once the scene uses the engine; see enable(). */
+  _enabled: boolean;
 
   constructor(scene: Phaser.Scene, pluginManager: Phaser.Plugins.PluginManager, pluginKey: string) {
     super(scene, pluginManager, pluginKey);
@@ -230,6 +232,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     this._filterDepthHeight = 0;
     this._worldTarget = null;
     this._blitQuad = null;
+    this._enabled = false;
   }
 
   // boot() runs only once per scene (Phaser registers it via once(BOOT)). Per-run state that
@@ -292,22 +295,34 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     const bootConfig = (this.pluginManager.get('TwoPointFivePlugin') as TwoPointFivePlugin | null)?.viewConfig;
     if (bootConfig) this._viewState = mergeViewConfig(this._viewState, bootConfig);
 
-    const game = this.game;
-    if (game.renderer && (game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl) {
-      this._initRenderer((game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl);
-    } else {
-      this.scene.sys.events.once('start', () => {
-        if (game.renderer && (game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl) {
-          this._initRenderer((game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl);
-        }
-      });
-    }
     this.scene.sys.events.on('start', this._onSceneStart, this);
     this.scene.sys.events.on('shutdown', this.shutdown, this);
     this.scene.sys.events.on('destroy', this.destroy, this);
   }
 
+  /**
+   * Switches the engine on for this scene: creates the renderer, camera and game state, and from then
+   * on (including after restarts) runs entity updates, input, sound and the timer clock with the scene.
+   * Every scene gets a plugin instance, but only scenes that use the 2.5D world should pay for it, and
+   * only one should drive the shared TPFTimer clock and pointer-lock input, so nothing starts until a
+   * scene calls this. getRenderer(), createExtern(), loadLevel() and the other entry points call it.
+   */
+  enable(): void {
+    if (this._enabled) return;
+    this._enabled = true;
+    const gl = (this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer | null)?.gl;
+    if (gl) this._initRenderer(gl);
+    // Enabled from preload() or create(): the scene's start event has already fired.
+    const status = this.scene.sys.settings.status;
+    if (status >= Phaser.Scenes.START && status < Phaser.Scenes.SHUTDOWN) this._startRun();
+  }
+
   _onSceneStart(): void {
+    if (this._enabled) this._startRun();
+  }
+
+  /** Per-run state, torn down by shutdown() and set up again on every (re)start. */
+  _startRun(): void {
     this.scene.sys.events.off('postupdate', this._onScenePostUpdate, this);
     this.scene.sys.events.on('postupdate', this._onScenePostUpdate, this);
     if (!this.inputController) this.inputController = new TwoPointFiveInputController(this.scene);
@@ -398,7 +413,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
    * the tile size in the image, which the seam expansion needs; it must match the level's layers.
    */
   setTileset(name: string, imageOrTexture: PhaserTextureInput, tilesize = 64): TilesetInfo | null {
-    if (!this.renderer) return null;
+    if (!this.getRenderer()) return null;
     const img = this._resolveSourceImage(imageOrTexture);
     if (!img) return null;
     const globalPlugin = this.pluginManager.get('TwoPointFivePlugin') as TwoPointFivePlugin | null;
@@ -432,6 +447,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   }
 
   loadLevel(data: import('./types.ts').LevelData): void {
+    this.enable();
     if (!this.gameState) return;
     this.gameState.context = this._getGameContext();
     this.gameState.sectorSize = this.sectorSize;
@@ -462,6 +478,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   }
 
   createExtern(): TpfExtern {
+    this.enable();
     const ext = new TpfExtern(this.scene, this);
     this.scene.add.existing(ext);
     this.extern = ext;
@@ -696,11 +713,9 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
 
   /** Renders the world straight to the canvas, for scenes driving the engine without an Extern. */
   draw(): void {
-    if (!this.renderer && this.game.renderer && (this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl) {
-      this._initRenderer((this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl);
-    }
-    if (!this.renderer) return;
-    this.renderer.phaserRenderer.glWrapper.updateBindingsFramebuffer(glState({ bindings: { framebuffer: null } }));
+    const renderer = this.getRenderer();
+    if (!renderer) return;
+    renderer.phaserRenderer.glWrapper.updateBindingsFramebuffer(glState({ bindings: { framebuffer: null } }));
     this._renderWorld();
   }
 
@@ -709,14 +724,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   }
 
   getRenderer(): Renderer | null {
-    if (this.renderer) return this.renderer;
-    if (
-      this.game.renderer &&
-      (this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl &&
-      this.scene.sys.isActive()
-    ) {
-      this._initRenderer((this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl);
-    }
+    this.enable();
     return this.renderer;
   }
 
@@ -733,29 +741,22 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   }
 
   getInputController(): TwoPointFiveInputController | null {
-    if (!this.inputController && this.scene.sys.isActive()) {
-      this.inputController = new TwoPointFiveInputController(this.scene);
-    }
+    this.enable();
     return this.inputController;
   }
 
   getSoundController(): TwoPointFiveSoundController | null {
-    if (!this.soundController && this.scene.sys.isActive()) {
-      this.soundController = new TwoPointFiveSoundController(this.scene);
-    }
+    this.enable();
     return this.soundController;
   }
 
   getTimeController(): TwoPointFiveTimeController | null {
-    if (!this.timeController && this.scene.sys.isActive()) {
-      this.timeController = new TwoPointFiveTimeController(this.scene);
-      this.timeController.bind();
-    }
+    this.enable();
     return this.timeController;
   }
 
   loadImage(phaserTexture: PhaserTextureInput): ImageInfo | null {
-    if (!this.renderer) return null;
+    if (!this.getRenderer()) return null;
     const img = this._resolveSourceImage(phaserTexture);
     const glTexture = this._getTextureWrapper(phaserTexture);
     if (!img || !glTexture) return null;
