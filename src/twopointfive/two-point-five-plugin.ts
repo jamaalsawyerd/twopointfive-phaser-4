@@ -171,6 +171,11 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
   lightMapPixels: Record<string, LightMapPixels>;
   _gameContext: GameContext | null;
   gravity: number;
+  /**
+   * Longest simulation step in seconds. A slow frame (or a tab returning from the background) advances
+   * entities by at most this much, as Impact's Timer.maxStep did; fast movers and traces assume it.
+   */
+  maxTick: number;
   sectorSize: number;
   /**
    * Emits `viewchange` with the resolved view whenever the view changes, from a canvas resize or
@@ -208,6 +213,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     this.lightMapPixels = {};
     this._gameContext = null;
     this.gravity = 4;
+    this.maxTick = 0.05;
     this.sectorSize = 4;
     this.events = new Phaser.Events.EventEmitter();
     this._viewState = { ...DEFAULT_VIEW_STATE };
@@ -438,7 +444,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
 
   update(delta?: number): void {
     if (!this.gameState?.entities) return;
-    const tick = (delta || this.game.loop.delta) / 1000;
+    const tick = Math.min((delta || this.game.loop.delta) / 1000, this.maxTick);
     const ctx = this.gameState.context;
     if (ctx) ctx.tick = tick;
     const entities = this.gameState.entities.slice();
@@ -647,7 +653,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     }
 
     const ctx = this.gameState.context;
-    ctx.tick = (this.game.loop.delta || 16) / 1000;
+    ctx.tick = Math.min((this.game.loop.delta || 16) / 1000, this.maxTick);
 
     this.renderAdapter.renderFrame({
       renderer: this.renderer,

@@ -55,6 +55,13 @@ plugins: {
 
 3. Entity classes should extend `TPF.TPFEntity` and receive a `context` (collisionMap, culledSectors, renderer, camera, gravity, tick). Use `this.context` in `update()` and `updateQuad()`.
 
+### Simulation step
+
+`context.tick` is the frame's delta in seconds, capped at `this.tpf.maxTick` (default `0.05`, Impact's
+`Timer.maxStep`). Above 20 fps that is the real frame time; below it the game slows down instead of
+moving entities in big jumps, which would let fast projectiles pass through walls and enemies. Set it
+from `create()` if your game needs a different cap.
+
 ### Configuring the view
 
 The camera and render target are configured through a single view object. Every field is optional

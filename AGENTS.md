@@ -48,7 +48,7 @@ Notes:
 2. The scene uses `scene.tpf` (scene plugin) to create the engine renderer, camera, and game state.
 3. `MainScene.preload()` loads textures, audio, JSON level data, and web fonts.
 4. `MainScene.create()` wires tilesets, light-map pixels, entity classes, HUD objects, pointer lock, and the `Extern` object that draws the 2.5D world inside the Phaser scene. The HUD (weapon image, icons, text, minimap) is entirely native Phaser GameObjects — there is no engine-side HUD/ortho pass.
-5. `MainScene.update()` hands mouse input to the player and runs the spawn timers. Entity simulation runs after it, in the plugin's own listener on the scene's `postupdate` event, which calls `tpf.update(delta)`.
+5. `MainScene.update()` hands mouse input to the player and runs the spawn timers. Entity simulation runs after it, in the plugin's own listener on the scene's `postupdate` event, which calls `tpf.update(delta)`. The step entities see (`context.tick`) is the delta capped at `tpf.maxTick` (0.05 s, like Impact's `Timer.maxStep`), so below 20 fps the game slows down rather than letting fast movers skip through walls.
 6. `GameState.loadLevel()` builds maps, collision, lighting, culled sectors, and entities from Impact-style level JSON.
 7. Entities update themselves through the shared `EntityContext` and render through the engine renderer.
 
