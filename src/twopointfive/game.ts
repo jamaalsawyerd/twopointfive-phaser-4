@@ -302,6 +302,18 @@ class GameState {
     }
   }
 
+  /**
+   * Advances every animated background tile (the `backgroundAnims` passed in the context), as Impact's
+   * Game.update did. Maps only read each animation's current tile when drawing, so without this the
+   * animated tiles stay on their first frame.
+   */
+  updateBackgroundAnims(): void {
+    for (const tileset in this.backgroundAnims) {
+      const anims = this.backgroundAnims[tileset];
+      for (const tile in anims) anims[tile].update();
+    }
+  }
+
   drawWorld(camera?: PerspectiveCamera, renderer?: Renderer): void {
     const r = renderer || this.context.renderer;
     const cam = camera || this.context.camera;

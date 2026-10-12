@@ -452,6 +452,7 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     this.gameState.checkEntities();
 
     this.gameState.entities = this.gameState.entities.filter((e) => !e._killed);
+    this.gameState.updateBackgroundAnims();
   }
 
   createExtern(): TpfExtern {

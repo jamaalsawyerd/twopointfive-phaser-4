@@ -43,6 +43,10 @@ plugins: {
 2. In a scene that uses 2.5D:
    - Call `this.tpf.setTileset(name, texture, tilesize)` for each tileset (after loading). `name` is the `tilesetName` the level's layers use; `tilesize` is the tile size in pixels in the image (default `64`) and must match those layers.
    - Call `this.tpf.setLightMapPixels(name, imageData)` if you use a light layer.
+   - For animated tiles, fill `this.tpf.backgroundAnims` before loading the level:
+     `this.tpf.backgroundAnims[tilesetName] = { [tileIndex]: new Animation(0.2, [4, 5, 6]) }`, with
+     `Animation` from `src/twopointfive/animation.ts` and `tileIndex` 0-based (the layer value minus 1).
+     The plugin advances them every frame.
    - Call `this.tpf.registerEntityClass('EntityTypeName', YourEntityClass)` before loading a level.
    - Call `this.tpf.loadLevel(levelData)` with Impact-style level JSON (layers: floor, ceiling, walls, collision, light; entities array).
    - In `update()` call `this.tpf.update(delta)`.
