@@ -756,11 +756,22 @@ class TwoPointFiveScenePlugin extends Phaser.Plugins.ScenePlugin {
     return this.timeController;
   }
 
+  /**
+   * Wraps a loaded Phaser texture for entity sprites and clamps it at its edges. Phaser gives
+   * power-of-two textures REPEAT wrapping, so a sprite's edge texels could sample the opposite side of
+   * its sheet and draw slivers along the sprite, worst on moving or bobbing ones. Clamping is safe for
+   * textures Phaser also draws: its TileSprite wraps inside its frame in the shader, not through REPEAT.
+   */
   loadImage(phaserTexture: PhaserTextureInput): ImageInfo | null {
     if (!this.getRenderer()) return null;
     const img = this._resolveSourceImage(phaserTexture);
     const glTexture = this._getTextureWrapper(phaserTexture);
     if (!img || !glTexture) return null;
+    const texture = typeof phaserTexture === 'string' ? this.scene.textures.get(phaserTexture) : phaserTexture;
+    if (texture instanceof Phaser.Textures.Texture) {
+      const clamp = Phaser.Textures.WrapMode.CLAMP_TO_EDGE;
+      texture.setWrap(clamp, clamp);
+    }
     return {
       texture: glTexture,
       width: img.width,
