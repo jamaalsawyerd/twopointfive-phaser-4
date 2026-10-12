@@ -170,6 +170,34 @@ class GameState {
     return ent;
   }
 
+  /** The living entity spawned with this `name` setting, like Impact's getEntityByName. */
+  getEntityByName(name: string): TPFEntity | null {
+    const ent = this.namedEntities[name] as TPFEntity | undefined;
+    return ent && !ent._killed ? ent : null;
+  }
+
+  /** Every living entity that is an instance of Type (subclasses included). */
+  getEntitiesByType<T extends TPFEntity>(Type: abstract new (...args: never[]) => T): T[] {
+    return this.entities.filter((e): e is T => e instanceof Type && !e._killed);
+  }
+
+  /**
+   * Spawns an entity by its registered type name, as level data does (so factories registered with
+   * registerEntityClass apply). Returns null if no class is registered under that name.
+   */
+  spawnEntityByType(typeName: string, x: number, y: number, settings: Record<string, unknown> = {}): TPFEntity | null {
+    const Type = this.context.entityClasses[typeName] as (typeof this.context.entityClasses)[string] | undefined;
+    return Type ? this.spawnEntity(Type, x, y, settings) : null;
+  }
+
+  /** Drops killed entities from the entity list, and their names from namedEntities. */
+  removeKilledEntities(): void {
+    this.entities = this.entities.filter((e) => !e._killed);
+    for (const name in this.namedEntities) {
+      if (this.namedEntities[name]._killed) delete this.namedEntities[name];
+    }
+  }
+
   /** Pairwise entity check: call check() when types match (bitwise), then resolve overlap when both collides. */
   checkEntities(): void {
     const COLLIDES = TPFEntity.COLLIDES;

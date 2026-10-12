@@ -323,9 +323,7 @@ export class MainScene extends Phaser.Scene {
           tpf.setFog(Number(s.fogColor), (s.fogNear as number) || 128, (s.fogFar as number) || 512);
       }
 
-      const player = tpf.getGameState()?.entities.find(function (e) {
-        return e instanceof EntityPlayer;
-      });
+      const player = tpf.getGameState()?.getEntitiesByType(EntityPlayer)[0];
       if (player) {
         this._player = player;
         const inputController = tpf.getInputController();

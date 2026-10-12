@@ -62,6 +62,13 @@ plugins: {
    - `zIndex` (default `0`): non-zero entities are drawn after everything else in the visible sectors,
      lowest first. Use it for translucent or additive effects that should draw over other sprites.
 
+4. Find and spawn entities through `this.tpf.getGameState()`. Lookups only return living entities:
+   - `getEntityByName(name)`: the entity spawned with that `name` setting (in the level or in code).
+   - `getEntitiesByType(EntityBlob)`: every entity of that class, subclasses included.
+   - `spawnEntity(EntityBlob, x, y, settings)`, or `spawnEntityByType('EntityBlob', x, y, settings)` to
+     spawn whatever is registered under that name, as the level loader does (useful for spawners and
+     triggers driven by level settings).
+
 ### Simulation step
 
 `context.tick` is the frame's delta in seconds, capped at `this.tpf.maxTick` (default `0.05`, Impact's
